@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
+import sys
 from importlib import import_module
 from importlib.metadata import entry_points
+from pathlib import Path
 
 from .errors import ConfigError, UnexpectedResponse
 
@@ -33,20 +36,51 @@ def require(obj, path: str, what: str = ""):
     return value
 
 
+def adapters_dir() -> Path:
+    """~/.modelrelay/adapters: single-file adapters that live on this machine only."""
+    from .config import config_dir
+    return config_dir() / "adapters"
+
+
 def load_object(name: str, group: str, builtins: dict):
-    """Resolve a builtin name, a 'package.module:Class' path, or an installed entry point."""
+    """Resolves, in this order:
+    - a builtin name ("openai_compatible", "jobs", ...);
+    - "module:Class", where module is a file in ~/.modelrelay/adapters/ (module.py);
+    - "package.module:Class" importable from the environment;
+    - an entry point registered under `group` by an installed package.
+    """
     if name in builtins:
         return builtins[name]
     if ":" in name:
         module, attr = name.split(":", 1)
-        return getattr(import_module(module), attr)
+        local = adapters_dir() / f"{module}.py"
+        mod = _load_file(local, module) if "." not in module and local.is_file() else import_module(module)
+        if not hasattr(mod, attr):
+            raise ConfigError(f"'{attr}' not found in {getattr(mod, '__file__', module)}")
+        return getattr(mod, attr)
     for ep in entry_points(group=group):
         if ep.name == name:
             return ep.load()
     raise ConfigError(
-        f"Unknown '{name}' for {group}. Use one of {sorted(builtins)}, a 'module:Class' path, "
-        f"or install a package that registers it under the '{group}' entry point group."
+        f"Unknown '{name}' for {group}. Use one of {sorted(builtins)}, 'file:Class' for a file in "
+        f"{adapters_dir()}, a 'package.module:Class' path, or an entry point in the '{group}' group."
     )
+
+
+def _load_file(path: Path, module: str):
+    key = f"modelrelay_adapters.{module}"
+    if key in sys.modules:
+        return sys.modules[key]
+    spec = importlib.util.spec_from_file_location(key, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[key] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except Exception:
+        del sys.modules[key]
+        raise
+    log.debug("loaded adapter %s", path)
+    return mod
 
 
 def enable_logging(level: str | int = "DEBUG") -> None:

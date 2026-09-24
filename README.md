@@ -127,6 +127,7 @@ Adapters can change anything specific to a gateway, without touching modelrelay:
 
 - **URLs, request body and response parsing:** override the hooks in `JobsTransport` /
   `OpenAICompatible`, or subclass `Transport` and write `complete()` and `stream()` from scratch.
+  See [Private adapters](#private-adapters) and [ADAPTER_GUIDE.md](ADAPTER_GUIDE.md).
   Relay needs nothing else.
 - **Headers and fixed body fields:** `extra_headers` / `extra_body` in the config, or override
   `headers_for()` for per-request headers.
@@ -172,8 +173,8 @@ api_key_env = "OPENROUTER_API_KEY"
 
 ```toml
 base_url = "https://gateway.example.com/v1"
-transport = "my_gateway_jobs"          # chat(): the job API, from your private adapter package
-stream_transport = "openai_compatible" # stream(): the proxy; switch to "my_gateway_jobs" if it goes away
+transport = "gateway:GatewayJobs"      # chat(): the job API, adapter in ~/.modelrelay/adapters/gateway.py
+stream_transport = "openai_compatible" # stream(): the proxy; switch to "gateway:GatewayJobs" if it goes away
 tools_mode = "native"                  # or "emulated"
 max_payload_mb = 20
 ca_bundle = "C:/certs/company-ca.pem"  # or verify_ssl = false (not recommended)
@@ -189,7 +190,7 @@ client_secret = "..."        # $MODELRELAY_CLIENT_SECRET instead
 [models]
 "gpt-4o" = "region1;gpt-4o"
 
-[transports.my_gateway_jobs]         # each path can have its own base_url
+[transports."gateway:GatewayJobs"]   # each path can have its own base_url
 base_url = "https://gateway.example.com/jobs-api"
 poll_interval = 0.5
 poll_max_interval = 5
@@ -224,10 +225,22 @@ Tokens are sent as `Authorization: Bearer <token>`. When a request gets 401/403,
 
 ## Private adapters
 
-When a gateway doesn't match the defaults, write a small package **outside** this repo:
+When a gateway doesn't match the defaults, an adapter translates its contract. An adapter is
+**one Python file on your machine**, next to the config:
+
+```
+~/.modelrelay/                     (C:\Users\<you>\.modelrelay\ on Windows)
+├── config.toml                    transport = "gateway:GatewayJobs"
+└── adapters/
+    └── gateway.py                 class GatewayJobs(JobsTransport)
+```
+
+`modelrelay init --template gateway` creates both, with the adapter as a skeleton full of TODOs.
+**[ADAPTER_GUIDE.md](ADAPTER_GUIDE.md)** walks through filling it in, step by step. It is written so
+an AI agent can follow it. A filled-in adapter looks like this:
 
 ```python
-# my_gateway_adapter/transport.py
+# ~/.modelrelay/adapters/gateway.py
 from modelrelay import JobsTransport, JobState, UnexpectedResponse, require
 from modelrelay.transports import parse_completion
 
@@ -247,58 +260,30 @@ class GatewayJobs(JobsTransport):
         raise UnexpectedResponse(f"Unknown state {state!r}", body=data)   # never guess
 ```
 
+modelrelay does the polling, retries, timeouts, token renewal and error reporting. The adapter
+only says where to send, what to send and how to read the answers.
+[`mock_adapter.py`](src/modelrelay/testing/mock_adapter.py) is a complete working example.
+
+In `transport` and `auth`, `"file:Class"` loads `Class` from `~/.modelrelay/adapters/file.py`.
+Your projects stay clean: they only `pip install` modelrelay and call `llm.chat(...)`. At home the
+same projects run with a different `config.toml` (for example OpenRouter) and no adapter at all.
+
+Keep the adapter out of public repositories. If you want it versioned, put `~/.modelrelay/adapters/`
+in your company's git, never the config (it holds credentials).
+
+**Alternative: an installable package.** If you'd rather ship the adapter as a package, register it
+with entry points and name it in the config:
+
 ```toml
-# my_gateway_adapter/pyproject.toml
+# pyproject.toml of your private package
 [project.entry-points."modelrelay.transports"]
 my_gateway_jobs = "my_gateway_adapter.transport:GatewayJobs"
 
-# and, if the token exchange is unusual:
-[project.entry-points."modelrelay.auth"]
+[project.entry-points."modelrelay.auth"]             # only if the token exchange is unusual
 my_identity = "my_gateway_adapter.auth:MyIdentity"   # subclass ClientCredentials, override fetch_token()
 ```
 
-Install it next to modelrelay and name it in the config. Your projects keep calling
-`llm.chat(...)`. [`modelrelay/testing/mock_adapter.py`](src/modelrelay/testing/mock_adapter.py)
-is a complete working example.
-
-The package name is up to you. modelrelay finds the adapter through the entry point name
-(`my_gateway_jobs` above) or a `module:Class` path in `transport` / `auth`. Only the group
-names `modelrelay.transports` and `modelrelay.auth` are fixed.
-
-### Organizing it: one adapter, many projects
-
-Create the adapter **once**, in its own folder, outside modelrelay and outside your projects.
-The environment's configs go in `~/.modelrelay/`, and every project picks them up:
-
-```
-C:\projects\
-├── my-gateway-adapter\        created once, private (keep it in your company's git)
-│   ├── pyproject.toml
-│   └── my_gateway_adapter\
-│       └── transport.py
-├── project-a\                 your projects: no adapter, no config inside
-└── project-b\
-
-C:\Users\<you>\.modelrelay\
-└── config.toml                modelrelay init --template gateway (jobs + proxy in one file)
-```
-
-Each project only installs the two packages:
-
-```bash
-python -m venv .venv
-.venv/Scripts/pip install git+https://github.com/naruminho/modelrelay
-.venv/Scripts/pip install -e C:\projects\my-gateway-adapter    # -e: fixes reach every project at once
-```
-
-In another environment (at home, say), the same projects install only modelrelay, and
-`~/.modelrelay/config.toml` there holds that environment's config, for example a copy of
-[`examples/openrouter.toml`](examples/openrouter.toml). The project code is identical in both
-places.
-
-Never copy files into Python's `Lib/site-packages` by hand. `pip install` does that. And
-don't put the adapter inside the modelrelay clone, or a `git pull` / `git add .` there could
-mix them up.
+Then `transport = "my_gateway_jobs"`, and every project installs the package too.
 
 ## Mock gateway
 

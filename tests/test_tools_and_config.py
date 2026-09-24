@@ -109,7 +109,7 @@ def test_cli_init_and_show(home, capsys):
     assert main(["init", "--profile", "work", "--template", "gateway"]) == 0
     work = Config.load(profile="work")
     assert work.auth == "client_credentials"
-    assert work.transport == "my_gateway_jobs" and work.stream_transport == "openai_compatible"
+    assert work.transport == "gateway:GatewayJobs" and work.stream_transport == "openai_compatible"
 
     (home / "config.toml").write_text('api_key = "sk-secret"\n')
     assert main(["show"]) == 0
