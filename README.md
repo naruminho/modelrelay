@@ -236,6 +236,50 @@ Install it next to modelrelay and name it in the config. Your projects keep call
 `llm.chat(...)`. [`modelrelay/testing/mock_adapter.py`](src/modelrelay/testing/mock_adapter.py)
 is a complete working example.
 
+The package name is up to you. modelrelay finds the adapter through the entry point name
+(`my_gateway_jobs` above) or a `module:Class` path in `transport` / `auth`. Only the group
+names `modelrelay.transports` and `modelrelay.auth` are fixed.
+
+### Organizing it: one adapter, many projects
+
+Create the adapter **once**, in its own folder, outside modelrelay and outside your projects.
+Put the environment's config next to it:
+
+```
+C:\projects\
+├── my-gateway-adapter\        created once, private (keep it in your company's git)
+│   ├── pyproject.toml
+│   ├── my_gateway_adapter\
+│   │   └── transport.py
+│   └── modelrelay.toml        this environment's config
+├── project-a\                 your projects: no adapter, no config inside
+└── project-b\
+```
+
+Point every project to that config once, with a user environment variable:
+
+```bash
+setx MODELRELAY_CONFIG "C:\projects\my-gateway-adapter\modelrelay.toml"   # Windows
+export MODELRELAY_CONFIG=~/projects/my-gateway-adapter/modelrelay.toml    # Linux/macOS (add to your shell profile)
+```
+
+Then each project only installs the two packages:
+
+```bash
+python -m venv .venv
+.venv/Scripts/pip install git+https://github.com/naruminho/modelrelay
+.venv/Scripts/pip install -e C:\projects\my-gateway-adapter    # -e: fixes reach every project at once
+```
+
+In another environment (at home, say), the same projects install only modelrelay, and
+`MODELRELAY_CONFIG` (or `~/.modelrelay.toml`) points to a config for that environment, such as
+[`examples/openrouter.toml`](examples/openrouter.toml). The project code is identical in both
+places.
+
+Never copy files into Python's `Lib/site-packages` by hand. `pip install` does that. And
+don't put the adapter inside the modelrelay clone, or a `git pull` / `git add .` there could
+mix them up.
+
 ## Mock gateway
 
 A fake gateway to develop against without spending tokens: expiring tokens, a request time
