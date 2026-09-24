@@ -120,7 +120,10 @@ set MODELRELAY_LOG=debug            # Windows cmd; PowerShell: $env:MODELRELAY_L
 python examples/smoke_test.py --profile config --text-model <name> --vision-model <name> --image-model <name>
 ```
 
-Run it twice: once as is (`chat()` through jobs, `stream()` through the proxy), and once with
+Then run `python examples/basics.py --model <name> --image-model <name>`: it is written like a
+real project and must print all six sections without errors (section 6 shows an error on purpose).
+
+Run the smoke test twice: once as is (`chat()` through jobs, `stream()` through the proxy), and once with
 `stream_transport = "gateway:GatewayJobs"` to check streaming over jobs too. Every check must
 print `OK`. Then test a long streamed answer through the proxy (ask for ~3000 words) and write
 down whether and when it gets cut. A cut must raise `StreamInterrupted`, not return a truncated

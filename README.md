@@ -313,6 +313,10 @@ python -m venv .venv
 .venv/Scripts/pytest
 ```
 
+[`examples/basics.py`](examples/basics.py) shows everything a project uses, written like a real
+project: chat, history, stream, tools, files and images, errors. Run it with
+`python examples/basics.py`.
+
 `pytest` runs against the mock and costs nothing. To check a real provider end to end
 (chat, history, stream, native/emulated tools, image and PDF input, image generation, errors):
 
