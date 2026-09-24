@@ -45,8 +45,6 @@ class Config:
     timeout_seconds: float = 120.0
     max_payload_mb: float | None = None
     headers: dict = field(default_factory=dict)
-    # If set, every request carries this header with the call's trace id (e.g. "X-Request-ID").
-    trace_header: str | None = None
 
     # Per-transport options, e.g. [transports.jobs] poll_interval = 1.0
     transports: dict = field(default_factory=dict)

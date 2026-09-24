@@ -115,8 +115,7 @@ trace_id=3f9c1a2b7d4e, elapsed=30.02, transport=OpenAICompatible, model=region1;
 `error.body` has the full, untruncated response. The original exception stays in `__cause__`.
 
 **Trace id.** Each call gets a `trace_id`. It appears in logs, errors, events and on
-`response.trace_id`. Set `trace_header = "X-Request-ID"` to also send it to the gateway, so you
-can find the same call in its logs.
+`response.trace_id`.
 
 **Logs.** Set `MODELRELAY_LOG=debug` (or call `modelrelay.enable_logging()`) to see every HTTP
 call with its status and timing, token renewals, job status changes and each polling retry.
@@ -184,7 +183,8 @@ auth = "client_credentials"
 token_url = "https://identity.example.com/token"
 token_field = "data.token"   # dotted path in the response
 ttl_minutes = 30             # renewed 2 minutes before it expires
-# client id/secret come from $MODELRELAY_CLIENT_ID and $MODELRELAY_CLIENT_SECRET
+client_id = "..."            # or leave them out and set $MODELRELAY_CLIENT_ID /
+client_secret = "..."        # $MODELRELAY_CLIENT_SECRET instead
 
 [models]
 "gpt-4o" = "region1;gpt-4o"
@@ -210,14 +210,13 @@ Every option:
 | `base_url` | OpenAI | API root |
 | `auth` | `static` | `static`, `client_credentials` or a plugin |
 | `api_key` / `api_key_env` | – / `OPENAI_API_KEY` | key for `static` |
-| `auth_options` | `{}` | `token_url`, `token_field`, `ttl_minutes`, `refresh_margin_seconds`, `request_format` (`json`/`form`), `id_field`, `secret_field`, `extra_fields`, `client_id_env`, `client_secret_env` |
+| `auth_options` | `{}` | `token_url`, `token_field`, `ttl_minutes`, `refresh_margin_seconds`, `request_format` (`json`/`form`), `id_field`, `secret_field`, `extra_fields`, `client_id`, `client_secret` (or `client_id_env` / `client_secret_env` to read them from other env vars) |
 | `models` | `{}` | model name map |
 | `tools_mode` | `native` | `native` or `emulated` (can also be set per transport) |
 | `verify_ssl` / `ca_bundle` | `true` / – | TLS verification |
 | `timeout_seconds` | `120` | HTTP timeout |
 | `max_payload_mb` | – | refuse requests bigger than this before sending |
 | `headers` | `{}` | extra headers on every request |
-| `trace_header` | – | header that carries each call's trace id (e.g. `X-Request-ID`) |
 | `transports.<name>` | `{}` | options for one transport: `base_url`, `tools_mode`, `extra_body`, `extra_headers`, polling settings |
 
 Tokens are sent as `Authorization: Bearer <token>`. When a request gets 401/403, a

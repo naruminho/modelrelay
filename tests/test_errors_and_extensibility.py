@@ -110,12 +110,6 @@ def test_poll_retries_are_logged(mock, caplog):
     assert any("poll failed (1/5)" in r.getMessage() for r in caplog.records)
 
 
-def test_trace_header_is_sent(mock):
-    state, url = mock
-    resp = make_relay(url, trace_header="X-Request-ID").chat("x", model="m")
-    assert state.last_headers["X-Request-ID"] == resp.trace_id
-
-
 # ---- adapters can change anything -------------------------------------------------------
 
 def test_extra_body_and_headers(mock):

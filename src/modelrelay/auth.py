@@ -94,7 +94,10 @@ class ClientCredentials(TokenProvider):
 
     def fetch_token(self) -> str:
         if not self.client_id or not self.client_secret:
-            raise ConfigError("client_credentials needs a client id and secret (see auth_options.*_env).")
+            raise ConfigError(
+                "client_credentials needs a client id and secret: set auth_options.client_id and "
+                "auth_options.client_secret in the config file (or $MODELRELAY_CLIENT_ID / $MODELRELAY_CLIENT_SECRET)."
+            )
         body = {self.id_field: self.client_id, self.secret_field: self.client_secret, **self.extra_fields}
         kwargs = {"json": body} if self.request_format == "json" else {"data": body}
         try:
@@ -147,12 +150,13 @@ def build_token_provider(config, http: httpx.Client) -> TokenProvider:
     if config.auth == "client_credentials":
         if "token_url" not in options:
             raise ConfigError("auth_options.token_url is required for client_credentials.")
+        # Values in the file win; the environment variables are only a fallback.
         id_env = options.pop("client_id_env", "MODELRELAY_CLIENT_ID")
         secret_env = options.pop("client_secret_env", "MODELRELAY_CLIENT_SECRET")
         return ClientCredentials(
             http,
-            client_id=os.environ.get(id_env),
-            client_secret=os.environ.get(secret_env),
+            client_id=options.pop("client_id", None) or os.environ.get(id_env),
+            client_secret=options.pop("client_secret", None) or os.environ.get(secret_env),
             **options,
         )
     cls = load_object(config.auth, "modelrelay.auth", BUILTIN_AUTH)

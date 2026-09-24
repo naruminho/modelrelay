@@ -54,10 +54,7 @@ class Transport:
 
     def headers_for(self, req: ChatRequest | None) -> dict:
         """Headers for one request. Override to add per-request headers."""
-        headers = dict(self.extra_headers)
-        if req is not None and self.config.trace_header:
-            headers[self.config.trace_header] = req.trace_id
-        return headers
+        return dict(self.extra_headers)
 
     def body_for(self, payload: dict) -> dict:
         """Final body: payload + extra_body, checked against max_payload_mb."""

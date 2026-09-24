@@ -1,7 +1,6 @@
 # Example config for OpenRouter. Copy it to ~/.modelrelay/config.toml to make it the default.
 base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"
-trace_header = "X-Request-ID"
 
 [models]
 "gpt-4o-mini" = "openai/gpt-4o-mini"

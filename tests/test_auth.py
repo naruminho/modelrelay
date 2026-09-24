@@ -78,3 +78,27 @@ def test_missing_static_key_message(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(ConfigError, match="OPENAI_API_KEY"):
         StaticToken(None, missing_hint="Set the OPENAI_API_KEY environment variable.").get_token()
+
+
+def test_credentials_in_config_file_win_over_env(mock, monkeypatch):
+    state, url = mock
+    monkeypatch.setenv("MODELRELAY_CLIENT_ID", "")
+    monkeypatch.setenv("MODELRELAY_CLIENT_SECRET", "")
+    relay = make_relay(url, auth="client_credentials",
+                       auth_options=cc_options(url, client_id="file-id", client_secret="file-secret"))
+    assert relay.auth.provider.client_id == "file-id"
+    assert relay.chat("a", model="m").text == "echo: a"
+
+
+def test_show_masks_credentials(tmp_path, monkeypatch, capsys):
+    from modelrelay.cli import main
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    monkeypatch.delenv("MODELRELAY_CONFIG", raising=False)
+    (tmp_path / ".modelrelay").mkdir()
+    (tmp_path / ".modelrelay" / "config.toml").write_text(
+        'auth = "client_credentials"\n[auth_options]\ntoken_url = "http://x"\n'
+        'client_id = "my-id"\nclient_secret = "my-secret"\n'
+    )
+    assert main(["show"]) == 0
+    out = capsys.readouterr().out
+    assert "my-id" not in out and "my-secret" not in out

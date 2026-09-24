@@ -13,7 +13,6 @@ TEMPLATES = {
 # modelrelay config: OpenRouter
 base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"   # or put the key here: api_key = "sk-or-..."
-trace_header = "X-Request-ID"
 
 [models]   # name used in code = name the provider expects
 "gpt-4o-mini" = "openai/gpt-4o-mini"
@@ -38,14 +37,14 @@ stream_transport = "openai_compatible"   # stream(): the proxy, text as it is ge
 tools_mode = "native"                    # or "emulated"
 max_payload_mb = 20
 # ca_bundle = "C:/certs/company-ca.pem"  # or: verify_ssl = false
-# trace_header = "X-Request-ID"
 
 auth = "client_credentials"
 [auth_options]
 token_url = "https://identity.example.com/token"
 token_field = "access_token"             # dotted path in the token response
 ttl_minutes = 30
-# client id/secret are read from $MODELRELAY_CLIENT_ID / $MODELRELAY_CLIENT_SECRET
+client_id = ""                           # this file stays in your user folder; `modelrelay show` masks these
+client_secret = ""
 
 [models]
 # "gpt-4o" = "region;gpt-4o"
