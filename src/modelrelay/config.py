@@ -58,13 +58,13 @@ class Config:
         1. `path`, if given
         2. ~/.modelrelay/<profile>.toml, if `profile` is given (must exist)
         3. $MODELRELAY_CONFIG, if set (optional; never required)
-        4. ~/.modelrelay/config.toml, if it exists
-        5. built-in defaults (OpenAI with $OPENAI_API_KEY)
+        4. ~/.modelrelay/config.toml
 
-        The file that was used is in `config.source` (None for defaults).
+        No file found is an error (run `modelrelay init`). To build a config in code
+        instead, use Config.from_dict(). The file used is in `config.source`.
         """
         source = _locate(path, profile)
-        data = _read(source) if source else {}
+        data = _read(source)
         data.update(overrides)
         config = cls.from_dict(data)
         config.source = source
@@ -87,15 +87,21 @@ class Config:
         return dict(self.transports.get(name, {}))
 
 
-def _locate(path, profile) -> Path | None:
+def _locate(path, profile) -> Path:
     if path:
         return _must_exist(Path(path), "Config file")
     if profile:
-        return _must_exist(config_dir() / f"{profile}.toml", f"Profile '{profile}'")
+        path = config_dir() / f"{profile}.toml"
+        if not path.is_file():
+            raise ConfigError(f"Profile '{profile}' not found: {path}. "
+                              f"Run `modelrelay init --profile {profile}` to create it.")
+        return path
     if os.environ.get(CONFIG_ENV):
         return _must_exist(Path(os.environ[CONFIG_ENV]), f"${CONFIG_ENV}")
     default = config_dir() / f"{DEFAULT_PROFILE}.toml"
-    return default if default.is_file() else None
+    if not default.is_file():
+        raise ConfigError(f"No config found at {default}. Run `modelrelay init` to create one.")
+    return default
 
 
 def _must_exist(path: Path, what: str) -> Path:

@@ -21,7 +21,13 @@ print(resp.text)
 
 ```bash
 pip install git+https://github.com/naruminho/modelrelay
+modelrelay init      # once per machine: creates ~/.modelrelay/config.toml (OpenRouter template)
+modelrelay show      # prints the config in use, secrets masked
 ```
+
+`pip install` can't create files in your home folder, so `modelrelay init` does it. Other
+templates: `modelrelay init --template openai` or `--template gateway`. `init` never overwrites
+an existing file.
 
 ## Usage
 
@@ -136,23 +142,20 @@ follow semantic versioning. A breaking change to either means a new major versio
 ## Configuration
 
 Configs live in one fixed folder, `~/.modelrelay/` (`C:\Users\<you>\.modelrelay\` on Windows).
-No environment variable is needed:
-
-```
-~/.modelrelay/
-├── config.toml    used by default
-└── proxy.toml     any other name is a profile
-```
+No environment variable is needed. `config.toml` is the default. One file is usually all you
+need, since it can send `chat()` and `stream()` through different paths (see the gateway example).
+Extra files are optional **profiles**, for when you want to switch whole setups:
 
 ```python
-llm = Relay()                  # ~/.modelrelay/config.toml
-llm = Relay(profile="proxy")   # ~/.modelrelay/proxy.toml
+llm = Relay()                     # ~/.modelrelay/config.toml
+llm = Relay(profile="openai")     # ~/.modelrelay/openai.toml  (modelrelay init --profile openai --template openai)
 llm = Relay(config_path="somewhere/else.toml")
 ```
 
 The lookup order is: `config_path`, then `profile`, then `$MODELRELAY_CONFIG` (optional, handy for
-CI), then `~/.modelrelay/config.toml`. With no file, modelrelay calls OpenAI with `$OPENAI_API_KEY`.
-`llm.config.source` tells you which file was used.
+CI), then `~/.modelrelay/config.toml`. If no file is found, you get a `ConfigError` telling you to
+run `modelrelay init`; there are no hidden defaults. `llm.config.source` tells you which file was
+used. To build a config in code instead, use `Relay(Config.from_dict({...}))`.
 
 **OpenRouter at home**
 
@@ -165,12 +168,13 @@ api_key_env = "OPENROUTER_API_KEY"
 "gemini-2.5-flash" = "google/gemini-2.5-flash"
 ```
 
-**A gateway with jobs and expiring tokens**
+**A gateway with a job API, an OpenAI-compatible proxy and expiring tokens**
+(`modelrelay init --template gateway`)
 
 ```toml
 base_url = "https://gateway.example.com/v1"
-transport = "my_gateway_jobs"          # plugin from your private adapter package
-stream_transport = "openai_compatible" # optional: a different path for stream()
+transport = "my_gateway_jobs"          # chat(): the job API, from your private adapter package
+stream_transport = "openai_compatible" # stream(): the proxy; switch to "my_gateway_jobs" if it goes away
 tools_mode = "native"                  # or "emulated"
 max_payload_mb = 20
 ca_bundle = "C:/certs/company-ca.pem"  # or verify_ssl = false (not recommended)
@@ -185,11 +189,17 @@ ttl_minutes = 30             # renewed 2 minutes before it expires
 [models]
 "gpt-4o" = "region1;gpt-4o"
 
-[transports.my_gateway_jobs]
+[transports.my_gateway_jobs]         # each path can have its own base_url
+base_url = "https://gateway.example.com/jobs-api"
 poll_interval = 0.5
 poll_max_interval = 5
 max_wait_seconds = 900
+
+[transports.openai_compatible]
+base_url = "https://proxy.example.com/v1"
 ```
+
+Both paths share the same token.
 
 Every option:
 
@@ -271,8 +281,7 @@ C:\projects\
 └── project-b\
 
 C:\Users\<you>\.modelrelay\
-├── config.toml                this environment's default (e.g. the job gateway)
-└── proxy.toml                 another profile (e.g. the OpenAI-compatible proxy)
+└── config.toml                modelrelay init --template gateway (jobs + proxy in one file)
 ```
 
 Each project only installs the two packages:

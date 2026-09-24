@@ -66,7 +66,7 @@ def test_unknown_transport():
         Relay(Config.from_dict({"transport": "nope"})).transport("nope")
 
 
-def test_disabling_ssl_warns():
+def test_disabling_ssl_warns():  # noqa: D103
     with pytest.warns(UserWarning, match="SSL"):
         Relay(Config.from_dict({"verify_ssl": False}))
 
@@ -94,9 +94,28 @@ def test_profiles(home):
         Config.load(profile="nope")
 
 
-def test_no_config_uses_defaults(home):
-    config = Config.load()
-    assert config.source is None and config.base_url == "https://api.openai.com/v1"
+def test_no_config_is_an_error(home):
+    with pytest.raises(ConfigError, match="modelrelay init"):
+        Config.load()
+    with pytest.raises(ConfigError, match="init --profile proxy"):
+        Relay(profile="proxy")
+
+
+def test_cli_init_and_show(home, capsys):
+    from modelrelay.cli import main
+    assert main(["init"]) == 0
+    assert (home / "config.toml").read_text().startswith("# modelrelay config: OpenRouter")
+    assert main(["init"]) == 1  # never overwrites
+    assert main(["init", "--profile", "work", "--template", "gateway"]) == 0
+    work = Config.load(profile="work")
+    assert work.auth == "client_credentials"
+    assert work.transport == "my_gateway_jobs" and work.stream_transport == "openai_compatible"
+
+    (home / "config.toml").write_text('api_key = "sk-secret"\n')
+    assert main(["show"]) == 0
+    out = capsys.readouterr().out
+    assert "sk-secret" not in out and "api_key = ***" in out
+    assert main(["show", "--profile", "missing"]) == 1
 
 
 def test_invalid_toml_is_explicit(home):
