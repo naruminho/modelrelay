@@ -21,7 +21,7 @@ class Relay:
     """The entry point. Your code only talks to this; the config decides where calls go.
 
         relay = Relay()                      # reads ~/.modelrelay/config.toml
-        relay = Relay(profile="proxy")       # reads ~/.modelrelay/proxy.toml
+        relay = Relay(profile="openai")      # reads ~/.modelrelay/openai.toml
         resp = relay.chat("hi", model="gpt-4o")
         for ev in relay.stream(messages, model="gpt-4o"): ...
     """
