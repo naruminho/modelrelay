@@ -146,3 +146,10 @@ def test_fully_custom_transport(mock):
     events = list(relay.stream("hi", model="gpt-4o"))
     assert [e.type for e in events] == ["running", "done"]
     assert all(e.trace_id for e in events)
+
+
+def test_upstream_reason_is_in_the_message():
+    from modelrelay.transports.base import _error_message
+    body = {"error": {"message": "Provider returned error", "code": 400, "metadata": {
+        "raw": '{"error": {"code": 400, "message": "Provided image is not valid."}}'}}}
+    assert _error_message(body) == "Provider returned error (upstream: Provided image is not valid.)"

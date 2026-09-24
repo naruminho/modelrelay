@@ -8,6 +8,7 @@ from importlib.metadata import entry_points
 from .errors import ConfigError, UnexpectedResponse
 
 log = logging.getLogger("modelrelay")
+log.addHandler(logging.NullHandler())  # silent unless the app or MODELRELAY_LOG turns logs on; errors still raise
 _MISSING = object()
 
 

@@ -135,8 +135,27 @@ def _error_message(data) -> str:
         return ""
     err = data.get("error")
     if isinstance(err, dict):
-        return str(err.get("message") or err)
+        message = str(err.get("message") or err)
+        # Gateways like OpenRouter wrap the upstream provider's error; surface its reason too.
+        upstream = _upstream_message((err.get("metadata") or {}).get("raw"))
+        return f"{message} (upstream: {upstream})" if upstream and upstream not in message else message
     return str(err or data.get("message") or data.get("detail") or "")
+
+
+def _upstream_message(raw) -> str:
+    if not raw:
+        return ""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return raw[:300]
+    if isinstance(raw, dict):
+        inner = raw.get("error", raw)
+        if isinstance(inner, dict):
+            return str(inner.get("message") or "")[:300]
+        return str(inner)[:300]
+    return str(raw)[:300]
 
 
 def _secs(start: float) -> float:

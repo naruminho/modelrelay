@@ -264,6 +264,14 @@ python -m venv .venv
 .venv/Scripts/pytest
 ```
 
+`pytest` runs against the mock and costs nothing. To check a real provider end to end
+(chat, history, stream, native/emulated tools, image and PDF input, image generation, errors):
+
+```bash
+python examples/smoke_test.py                       # OpenRouter, needs $OPENROUTER_API_KEY
+python examples/smoke_test.py my-config.toml --text-model X --vision-model Y --image-model Z
+```
+
 ## License
 
 MIT

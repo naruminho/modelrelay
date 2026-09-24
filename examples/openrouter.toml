@@ -1,0 +1,9 @@
+# Example config for OpenRouter. Copy to ./modelrelay.toml or point $MODELRELAY_CONFIG here.
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+trace_header = "X-Request-ID"
+
+[models]
+"gpt-4o-mini" = "openai/gpt-4o-mini"
+"gemini-2.5-flash" = "google/gemini-2.5-flash"
+"gemini-2.5-flash-image" = "google/gemini-2.5-flash-image"
