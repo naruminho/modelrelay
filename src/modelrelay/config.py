@@ -12,8 +12,13 @@ else:  # pragma: no cover
 
 from .errors import ConfigError
 
-CONFIG_ENV = "MODELRELAY_CONFIG"
-DEFAULT_LOCATIONS = (Path("modelrelay.toml"), Path.home() / ".modelrelay.toml")
+CONFIG_ENV = "MODELRELAY_CONFIG"  # optional override, e.g. for CI
+DEFAULT_PROFILE = "config"
+
+
+def config_dir() -> Path:
+    """~/.modelrelay, i.e. C:/Users/<user>/.modelrelay on Windows."""
+    return Path.home() / ".modelrelay"
 
 
 @dataclass
@@ -47,25 +52,27 @@ class Config:
     transports: dict = field(default_factory=dict)
 
     @classmethod
-    def load(cls, path: str | Path | None = None, **overrides) -> Config:
-        """Load from `path`, $MODELRELAY_CONFIG, ./modelrelay.toml or ~/.modelrelay.toml (first found)."""
-        data: dict = {}
-        path = path or os.environ.get(CONFIG_ENV)
-        if path:
-            if not Path(path).is_file():
-                raise ConfigError(f"Config file not found: {path}")
-            data = _read(Path(path))
-        else:
-            for candidate in DEFAULT_LOCATIONS:
-                if candidate.is_file():
-                    data = _read(candidate)
-                    break
+    def load(cls, path: str | Path | None = None, profile: str | None = None, **overrides) -> Config:
+        """Loads the config file, in this order:
+
+        1. `path`, if given
+        2. ~/.modelrelay/<profile>.toml, if `profile` is given (must exist)
+        3. $MODELRELAY_CONFIG, if set (optional; never required)
+        4. ~/.modelrelay/config.toml, if it exists
+        5. built-in defaults (OpenAI with $OPENAI_API_KEY)
+
+        The file that was used is in `config.source` (None for defaults).
+        """
+        source = _locate(path, profile)
+        data = _read(source) if source else {}
         data.update(overrides)
-        return cls.from_dict(data)
+        config = cls.from_dict(data)
+        config.source = source
+        return config
 
     @classmethod
     def from_dict(cls, data: dict) -> Config:
-        known = {f.name for f in fields(cls)}
+        known = {f.name for f in fields(cls) if f.init}
         unknown = set(data) - known
         if unknown:
             raise ConfigError(f"Unknown config keys: {sorted(unknown)}")
@@ -74,10 +81,32 @@ class Config:
             raise ConfigError("tools_mode must be 'native' or 'emulated'")
         return config
 
+    source: Path | None = field(default=None, init=False, repr=False, compare=False)
+
     def transport_options(self, name: str) -> dict:
         return dict(self.transports.get(name, {}))
 
 
+def _locate(path, profile) -> Path | None:
+    if path:
+        return _must_exist(Path(path), "Config file")
+    if profile:
+        return _must_exist(config_dir() / f"{profile}.toml", f"Profile '{profile}'")
+    if os.environ.get(CONFIG_ENV):
+        return _must_exist(Path(os.environ[CONFIG_ENV]), f"${CONFIG_ENV}")
+    default = config_dir() / f"{DEFAULT_PROFILE}.toml"
+    return default if default.is_file() else None
+
+
+def _must_exist(path: Path, what: str) -> Path:
+    if not path.is_file():
+        raise ConfigError(f"{what} not found: {path}")
+    return path
+
+
 def _read(path: Path) -> dict:
-    with path.open("rb") as f:
-        return tomllib.load(f)
+    try:
+        with path.open("rb") as f:
+            return tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"Invalid TOML in {path}: {e}") from e

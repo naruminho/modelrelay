@@ -1,6 +1,7 @@
 """Calls a real provider once per feature and prints what happened.
 
     python examples/smoke_test.py                              # uses examples/openrouter.toml
+    python examples/smoke_test.py --profile config             # uses ~/.modelrelay/config.toml
     python examples/smoke_test.py path/to/config.toml --text-model X --image-model Y
 
 Costs a few cents. Every check prints OK or FAIL with the full error.
@@ -74,11 +75,14 @@ def check(name):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("config", nargs="?", default=str(HERE / "openrouter.toml"))
+    parser.add_argument("--profile", help="use ~/.modelrelay/<profile>.toml instead of a path")
     parser.add_argument("--text-model", default="gpt-4o-mini")
     parser.add_argument("--vision-model", default="gemini-2.5-flash")
     parser.add_argument("--image-model", default="gemini-2.5-flash-image")
     args = parser.parse_args()
-    llm = Relay(config_path=args.config)
+    source = {"profile": args.profile} if args.profile else {"config_path": args.config}
+    llm = Relay(**source)
+    print(f"config: {llm.config.source}")
     tmp = Path(tempfile.mkdtemp())
 
     @check("chat")
@@ -132,7 +136,7 @@ def main():
 
     @check("tools (emulated)")
     def _():
-        emu = Relay(config_path=args.config, tools_mode="emulated")
+        emu = Relay(**source, tools_mode="emulated")
         msgs = [{"role": "user", "content": "What is 17 + 25? Use the add tool."}]
         try:
             r = emu.chat(msgs, model=args.text_model, tools=TOOLS)

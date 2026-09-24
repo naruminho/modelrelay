@@ -135,8 +135,24 @@ follow semantic versioning. A breaking change to either means a new major versio
 
 ## Configuration
 
-modelrelay reads the first file it finds: `$MODELRELAY_CONFIG`, `./modelrelay.toml`, then
-`~/.modelrelay.toml`. With no file, it calls OpenAI with `$OPENAI_API_KEY`.
+Configs live in one fixed folder, `~/.modelrelay/` (`C:\Users\<you>\.modelrelay\` on Windows).
+No environment variable is needed:
+
+```
+~/.modelrelay/
+├── config.toml    used by default
+└── proxy.toml     any other name is a profile
+```
+
+```python
+llm = Relay()                  # ~/.modelrelay/config.toml
+llm = Relay(profile="proxy")   # ~/.modelrelay/proxy.toml
+llm = Relay(config_path="somewhere/else.toml")
+```
+
+The lookup order is: `config_path`, then `profile`, then `$MODELRELAY_CONFIG` (optional, handy for
+CI), then `~/.modelrelay/config.toml`. With no file, modelrelay calls OpenAI with `$OPENAI_API_KEY`.
+`llm.config.source` tells you which file was used.
 
 **OpenRouter at home**
 
@@ -243,27 +259,23 @@ names `modelrelay.transports` and `modelrelay.auth` are fixed.
 ### Organizing it: one adapter, many projects
 
 Create the adapter **once**, in its own folder, outside modelrelay and outside your projects.
-Put the environment's config next to it:
+The environment's configs go in `~/.modelrelay/`, and every project picks them up:
 
 ```
 C:\projects\
 ├── my-gateway-adapter\        created once, private (keep it in your company's git)
 │   ├── pyproject.toml
-│   ├── my_gateway_adapter\
-│   │   └── transport.py
-│   └── modelrelay.toml        this environment's config
+│   └── my_gateway_adapter\
+│       └── transport.py
 ├── project-a\                 your projects: no adapter, no config inside
 └── project-b\
+
+C:\Users\<you>\.modelrelay\
+├── config.toml                this environment's default (e.g. the job gateway)
+└── proxy.toml                 another profile (e.g. the OpenAI-compatible proxy)
 ```
 
-Point every project to that config once, with a user environment variable:
-
-```bash
-setx MODELRELAY_CONFIG "C:\projects\my-gateway-adapter\modelrelay.toml"   # Windows
-export MODELRELAY_CONFIG=~/projects/my-gateway-adapter/modelrelay.toml    # Linux/macOS (add to your shell profile)
-```
-
-Then each project only installs the two packages:
+Each project only installs the two packages:
 
 ```bash
 python -m venv .venv
@@ -272,7 +284,7 @@ python -m venv .venv
 ```
 
 In another environment (at home, say), the same projects install only modelrelay, and
-`MODELRELAY_CONFIG` (or `~/.modelrelay.toml`) points to a config for that environment, such as
+`~/.modelrelay/config.toml` there holds that environment's config, for example a copy of
 [`examples/openrouter.toml`](examples/openrouter.toml). The project code is identical in both
 places.
 

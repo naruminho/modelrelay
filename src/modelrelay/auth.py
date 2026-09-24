@@ -142,7 +142,8 @@ def build_token_provider(config, http: httpx.Client) -> TokenProvider:
     options = dict(config.auth_options)
     if config.auth == "static":
         key = config.api_key or os.environ.get(config.api_key_env)
-        return StaticToken(key, missing_hint=f"Set the {config.api_key_env} environment variable or `api_key`.")
+        where = config.source or "no config file found (looked for ~/.modelrelay/config.toml)"
+        return StaticToken(key, missing_hint=f"Set `api_key`, or the {config.api_key_env} environment variable. Config: {where}")
     if config.auth == "client_credentials":
         if "token_url" not in options:
             raise ConfigError("auth_options.token_url is required for client_credentials.")

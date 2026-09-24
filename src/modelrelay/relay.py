@@ -20,13 +20,16 @@ from .types import ChatRequest, Event, Response
 class Relay:
     """The entry point. Your code only talks to this; the config decides where calls go.
 
-        relay = Relay()                      # reads modelrelay.toml / $MODELRELAY_CONFIG
+        relay = Relay()                      # reads ~/.modelrelay/config.toml
+        relay = Relay(profile="proxy")       # reads ~/.modelrelay/proxy.toml
         resp = relay.chat("hi", model="gpt-4o")
         for ev in relay.stream(messages, model="gpt-4o"): ...
     """
 
-    def __init__(self, config: Config | None = None, *, config_path=None, http: httpx.Client | None = None, **overrides):
-        self.config = config or Config.load(config_path, **overrides)
+    def __init__(self, config: Config | None = None, *, config_path=None, profile: str | None = None,
+                 http: httpx.Client | None = None, **overrides):
+        self.config = config or Config.load(config_path, profile, **overrides)
+        log.debug("config: %s", self.config.source or "built-in defaults")
         self.http = http or _make_client(self.config)
         self.auth = BearerAuth(build_token_provider(self.config, self.http))
         self._transports: dict[str, Transport] = {}

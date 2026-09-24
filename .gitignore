@@ -4,5 +4,4 @@ __pycache__/
 .pytest_cache/
 dist/
 build/
-modelrelay.toml
 .env

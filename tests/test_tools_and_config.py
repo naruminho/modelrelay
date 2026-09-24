@@ -69,3 +69,43 @@ def test_unknown_transport():
 def test_disabling_ssl_warns():
     with pytest.warns(UserWarning, match="SSL"):
         Relay(Config.from_dict({"verify_ssl": False}))
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    monkeypatch.delenv("MODELRELAY_CONFIG", raising=False)
+    (tmp_path / ".modelrelay").mkdir()
+    return tmp_path / ".modelrelay"
+
+
+def test_default_config_in_home_folder(home):
+    (home / "config.toml").write_text('base_url = "http://home/v1"\n')
+    config = Config.load()
+    assert config.base_url == "http://home/v1"
+    assert config.source == home / "config.toml"
+
+
+def test_profiles(home):
+    (home / "config.toml").write_text('base_url = "http://default/v1"\n')
+    (home / "proxy.toml").write_text('base_url = "http://proxy/v1"\n')
+    assert Relay(profile="proxy").config.base_url == "http://proxy/v1"
+    with pytest.raises(ConfigError, match="Profile 'nope' not found"):
+        Config.load(profile="nope")
+
+
+def test_no_config_uses_defaults(home):
+    config = Config.load()
+    assert config.source is None and config.base_url == "https://api.openai.com/v1"
+
+
+def test_invalid_toml_is_explicit(home):
+    (home / "config.toml").write_text("base_url = \n")
+    with pytest.raises(ConfigError, match="Invalid TOML"):
+        Config.load()
+
+
+def test_source_cannot_be_set_from_file(home):
+    (home / "config.toml").write_text('source = "x"\n')
+    with pytest.raises(ConfigError, match="source"):
+        Config.load()
