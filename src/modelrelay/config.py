@@ -34,7 +34,8 @@ class Config:
     api_key_env: str = "OPENAI_API_KEY"
     auth_options: dict = field(default_factory=dict)
 
-    # Model names used in code -> names the provider expects.
+    # Model names used in code -> names the provider expects. A value can also be a table with
+    # default request params: "text" = { model = "provider/model", reasoning_effort = "high" }
     models: dict = field(default_factory=dict)
 
     # Per-app model overrides: [apps.<app>.models]. An app only lists what differs from [models];
@@ -81,19 +82,50 @@ class Config:
         config = cls(**data)
         if config.tools_mode not in ("native", "emulated"):
             raise ConfigError("tools_mode must be 'native' or 'emulated'")
+        _check_models(config.models, "[models]")
         _check_apps(config.apps)
         return config
 
-    def models_for(self, app: str | None = None) -> dict:
-        """The model map an app sees: [models], with [apps.<app>.models] on top.
-        Unknown or missing app -> just [models]."""
+    def entries_for(self, app: str | None = None) -> dict:
+        """Raw entries an app sees: [models], with [apps.<app>.models] on top (a whole entry replaces
+        the shared one). Unknown or missing app -> just [models]."""
         own = (self.apps.get(app) or {}).get("models", {}) if app else {}
         return {**self.models, **own}
+
+    def models_for(self, app: str | None = None) -> dict:
+        """Name -> provider model for an app (params left out; see route())."""
+        return {name: _split(entry)[0] for name, entry in self.entries_for(app).items()}
+
+    def route(self, name: str, app: str | None = None) -> tuple[str, dict]:
+        """(provider model, default request params) for a name. Not an alias -> (name, {})."""
+        entry = self.entries_for(app).get(name)
+        return _split(entry) if entry is not None else (name, {})
 
     source: Path | None = field(default=None, init=False, repr=False, compare=False)
 
     def transport_options(self, name: str) -> dict:
         return dict(self.transports.get(name, {}))
+
+
+def _split(entry) -> tuple[str, dict]:
+    if isinstance(entry, str):
+        return entry, {}
+    params = {k: v for k, v in entry.items() if k != "model"}
+    return entry["model"], params
+
+
+def _check_models(models, where: str) -> None:
+    if not isinstance(models, dict):
+        raise ConfigError(f"{where} must map names to models")
+    for name, entry in models.items():
+        if isinstance(entry, str):
+            continue
+        if not isinstance(entry, dict):
+            raise ConfigError(f'{where} "{name}" must be a model string or a table, e.g. '
+                              f'"{name}" = {{ model = "provider/model", reasoning_effort = "high" }}')
+        if not isinstance(entry.get("model"), str) or not entry["model"]:
+            raise ConfigError(f'{where} "{name}" needs a `model`: '
+                              f'"{name}" = {{ model = "provider/model", reasoning_effort = "high" }}')
 
 
 def _check_apps(apps) -> None:
@@ -106,9 +138,7 @@ def _check_apps(apps) -> None:
         if unknown:
             raise ConfigError(f"Unknown keys in [apps.{name}]: {sorted(unknown)}. Only [apps.{name}.models] is supported: "
                               "provider, auth and transports are shared by all apps (use a profile to change those).")
-        models = section.get("models", {})
-        if not isinstance(models, dict) or not all(isinstance(v, str) for v in models.values()):
-            raise ConfigError(f'[apps.{name}.models] must map names to model strings, e.g. "text" = "provider/model"')
+        _check_models(section.get("models", {}), f"[apps.{name}.models]")
 
 
 def _locate(path, profile) -> Path:

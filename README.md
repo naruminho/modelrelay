@@ -202,6 +202,36 @@ base_url = "https://proxy.example.com/v1"
 
 Both paths share the same token.
 
+### Roles and default params (e.g. reasoning effort)
+
+Apps ask for a **role**; the config picks the model. Two roles cover most apps:
+
+| Role | What the model must do | Example |
+|---|---|---|
+| `text` | **read**: conversation, tools, and the images the app sends (slide snapshots, pasted screenshots). If the app sends images, pick a model with image *input*. | `deepseek/deepseek-v4.1-flash`, `anthropic/claude-sonnet-5` |
+| `image` | **generate** images (image *output*) | `google/gemini-3.1-flash-image` |
+
+A role can be a table instead of a string. `model` is the provider model; every other key is a
+default request param, sent on every call that uses the role:
+
+```toml
+[models]
+"text"  = { model = "deepseek/deepseek-v4.1-flash", reasoning_effort = "medium" }   # OpenAI-style
+"deep"  = { model = "deepseek/deepseek-v4.1-flash", reasoning = { effort = "high" } } # OpenRouter-style
+"quick" = { model = "deepseek/deepseek-v4.1-flash", reasoning = { enabled = false } } # no thinking
+"image" = "google/gemini-3.1-flash-image"
+```
+
+- Params sent by the app on a call win over the config (`relay.chat(..., model="text", reasoning_effort="low")`).
+- The same works in `[apps.<app>.models]`: a table there replaces the shared entry for that app.
+- `modelrelay show --app <app>` prints the params: `text = deepseek/deepseek-v4.1-flash  (reasoning_effort=medium)`.
+- modelrelay passes the params as they are; **how much a model honors them depends on the model and on the
+  provider behind it**. Measured on OpenRouter with `deepseek/deepseek-v4.1-flash` (Sep 2026, 3 runs each,
+  a hard math question): it reasons by default (~600 reasoning tokens, billed as output); `effort` moved
+  that only a little and noisily (minimal ~560, high ~900); `reasoning.max_tokens` was not enforced;
+  `reasoning = { enabled = false }` really turned it off (~2 s instead of ~7 s) but got 1 of 3 right
+  instead of 3 of 3. Measure with your own prompts before relying on it.
+
 ### Per-app models
 
 Several apps can share one config (and one `modelrelay serve`) and still use different models.
@@ -299,7 +329,7 @@ Every option:
 | `auth` | `static` | `static`, `client_credentials` or a plugin |
 | `api_key` / `api_key_env` | – / `OPENAI_API_KEY` | key for `static` |
 | `auth_options` | `{}` | `token_url`, `token_field`, `ttl_minutes`, `refresh_margin_seconds`, `request_format` (`json`/`form`), `id_field`, `secret_field`, `extra_fields`, `client_id`, `client_secret` (or `client_id_env` / `client_secret_env` to read them from other env vars) |
-| `models` | `{}` | model name map (names used in code -> provider model) |
+| `models` | `{}` | model name map (names used in code -> provider model); a value can be a table `{ model = "...", <param> = ... }` with default request params such as `reasoning_effort` |
 | `apps.<app>.models` | `{}` | per-app overrides of `models` (see [Per-app models](#per-app-models)) |
 | `tools_mode` | `native` | `native` or `emulated` (can also be set per transport) |
 | `verify_ssl` / `ca_bundle` | `true` / – | TLS verification |

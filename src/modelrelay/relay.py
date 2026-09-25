@@ -107,11 +107,12 @@ class Relay:
 
     def resolve_model(self, model: str, app: str | None = None) -> str:
         """The provider model a name becomes: [apps.<app>.models], then [models], else the name itself."""
-        return self.config.models_for(app or self.app).get(model, model)
+        return self.config.route(model, app or self.app)[0]
 
     def _request(self, transport, messages, model, tools, files, params, app=None) -> tuple[ChatRequest, bool]:
         msgs = normalize_messages(messages, files)
-        resolved = self.resolve_model(model, app)
+        resolved, defaults = self.config.route(model, app or self.app)
+        params = {**defaults, **params}  # config gives defaults (e.g. reasoning_effort); the call wins
         emulated = False
         if tools:
             tools = normalize_tools(tools)

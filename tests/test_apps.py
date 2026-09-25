@@ -25,7 +25,7 @@ def test_models_for_merges_app_over_shared():
 @pytest.mark.parametrize("apps, message", [
     ({"wotan": {"base_url": "x"}}, "Only \\[apps.wotan.models\\]"),
     ({"wotan": "text"}, "must be a table"),
-    ({"wotan": {"models": {"text": 3}}}, "model strings"),
+    ({"wotan": {"models": {"text": 3}}}, "model string or a table"),
 ])
 def test_bad_app_sections_are_explained(apps, message):
     with pytest.raises(ConfigError, match=message):
