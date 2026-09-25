@@ -1,4 +1,5 @@
-"""Command line: `modelrelay init` creates a config, `modelrelay show` prints the one in use."""
+"""Command line: `modelrelay init` creates a config, `modelrelay show` prints the one in use,
+`modelrelay serve` exposes it as a local OpenAI-compatible endpoint."""
 
 from __future__ import annotations
 
@@ -17,6 +18,8 @@ base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"   # or put the key here: api_key = "sk-or-..."
 
 [models]   # name used in code = name the provider expects
+"text" = "google/gemini-2.5-flash"               # role aliases: apps ask for "text"/"image",
+"image" = "google/gemini-2.5-flash-image"        # the config decides the real model
 "gpt-4o-mini" = "openai/gpt-4o-mini"
 "gemini-2.5-flash" = "google/gemini-2.5-flash"
 "gemini-2.5-flash-image" = "google/gemini-2.5-flash-image"
@@ -120,10 +123,20 @@ def main(argv: list[str] | None = None) -> int:
     p_show = sub.add_parser("show", help="print the config in use (secrets masked)")
     p_show.add_argument("--profile")
 
+    p_serve = sub.add_parser("serve", help="local OpenAI-compatible endpoint (/v1/chat/completions) using the config")
+    p_serve.add_argument("--profile")
+    p_serve.add_argument("--host", default="127.0.0.1")
+    p_serve.add_argument("--port", type=int, default=8765)
+    p_serve.add_argument("--api-key", help="require this bearer token (default: $MODELRELAY_SERVE_KEY, else none)")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
             return init(args.profile, args.template)
+        if args.command == "serve":
+            from .server import serve
+            serve(host=args.host, port=args.port, api_key=args.api_key, profile=args.profile)
+            return 0
         return show(args.profile)
     except ModelRelayError as e:
         print(f"error: {e}", file=sys.stderr)

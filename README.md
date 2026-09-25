@@ -285,6 +285,29 @@ my_identity = "my_gateway_adapter.auth:MyIdentity"   # subclass ClientCredential
 
 Then `transport = "my_gateway_jobs"`, and every project installs the package too.
 
+## Other languages: `modelrelay serve`
+
+Programs that aren't Python (a Node app, a browser front end) can use modelrelay through a local
+OpenAI-compatible endpoint. They send plain `/v1/chat/completions`, and the config decides where
+each call really goes: gateway, token, adapters.
+
+```bash
+modelrelay serve                 # http://127.0.0.1:8765/v1  (--port, --host, --profile)
+```
+
+- `POST /v1/chat/completions`: non-streaming and `stream: true` (SSE). Supports tools, multimodal input
+  and generated images, which come back as `message.images`, the same format OpenRouter uses. Other
+  fields such as `temperature` or `max_tokens` go straight to the provider.
+- `GET /v1/models` lists the names in `[models]`. `GET /health` always answers without auth.
+- It listens on 127.0.0.1 with no auth. `--api-key` or `$MODELRELAY_SERVE_KEY` requires `Authorization: Bearer <key>`.
+- A provider error comes back with its HTTP status for 4xx and as 502 otherwise, with the details in `error`.
+
+In Python you can start it inside your own process: `make_server(port=0)` returns the server, and
+`server.url` gives its address.
+
+Tip: give models **role names** in `[models]` (`"text"`, `"image"`) so apps ask for a role and each
+machine's config picks the actual model.
+
 ## Mock gateway
 
 A fake gateway to develop against without spending tokens: expiring tokens, a request time
