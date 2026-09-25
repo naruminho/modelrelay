@@ -99,8 +99,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(404, f"Not found: {self.path}")
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
-        except json.JSONDecodeError as e:
-            return self._error(400, f"Invalid JSON body: {e}")
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:  # invalid JSON or not UTF-8
+            return self._error(400, f"Invalid JSON body (must be UTF-8 JSON): {e}")
         if not body.get("model") or not body.get("messages"):
             return self._error(400, "`model` and `messages` are required")
 

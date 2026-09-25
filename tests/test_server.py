@@ -97,3 +97,9 @@ def test_api_key_required_when_set(mock):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_body_that_is_not_utf8_gets_400_not_a_dropped_connection(served):
+    r = httpx.post(f"{served.url}/chat/completions", content="{\"model\": \"m\", \"x\": \"só\"}".encode("latin-1"),
+                   headers={"Content-Type": "application/json"}, timeout=10)
+    assert r.status_code == 400 and "UTF-8" in r.json()["error"]["message"]
