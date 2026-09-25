@@ -37,6 +37,10 @@ class Config:
     # Model names used in code -> names the provider expects.
     models: dict = field(default_factory=dict)
 
+    # Per-app model overrides: [apps.<app>.models]. An app only lists what differs from [models];
+    # provider, auth and everything else stay shared. See models_for().
+    apps: dict = field(default_factory=dict)
+
     # "native" sends `tools` to the API; "emulated" describes them in the prompt and parses the reply.
     tools_mode: str = "native"
 
@@ -77,12 +81,34 @@ class Config:
         config = cls(**data)
         if config.tools_mode not in ("native", "emulated"):
             raise ConfigError("tools_mode must be 'native' or 'emulated'")
+        _check_apps(config.apps)
         return config
+
+    def models_for(self, app: str | None = None) -> dict:
+        """The model map an app sees: [models], with [apps.<app>.models] on top.
+        Unknown or missing app -> just [models]."""
+        own = (self.apps.get(app) or {}).get("models", {}) if app else {}
+        return {**self.models, **own}
 
     source: Path | None = field(default=None, init=False, repr=False, compare=False)
 
     def transport_options(self, name: str) -> dict:
         return dict(self.transports.get(name, {}))
+
+
+def _check_apps(apps) -> None:
+    if not isinstance(apps, dict):
+        raise ConfigError("apps must be a table: [apps.<app>.models]")
+    for name, section in apps.items():
+        if not isinstance(section, dict):
+            raise ConfigError(f"[apps.{name}] must be a table with a [apps.{name}.models] section")
+        unknown = set(section) - {"models"}
+        if unknown:
+            raise ConfigError(f"Unknown keys in [apps.{name}]: {sorted(unknown)}. Only [apps.{name}.models] is supported: "
+                              "provider, auth and transports are shared by all apps (use a profile to change those).")
+        models = section.get("models", {})
+        if not isinstance(models, dict) or not all(isinstance(v, str) for v in models.values()):
+            raise ConfigError(f'[apps.{name}.models] must map names to model strings, e.g. "text" = "provider/model"')
 
 
 def _locate(path, profile) -> Path:

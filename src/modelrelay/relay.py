@@ -22,13 +22,15 @@ class Relay:
 
         relay = Relay()                      # reads ~/.modelrelay/config.toml
         relay = Relay(profile="openai")      # reads ~/.modelrelay/openai.toml
+        relay = Relay(app="wotan")           # model names resolved with [apps.wotan.models] first
         resp = relay.chat("hi", model="gpt-4o")
         for ev in relay.stream(messages, model="gpt-4o"): ...
     """
 
     def __init__(self, config: Config | None = None, *, config_path=None, profile: str | None = None,
-                 http: httpx.Client | None = None, **overrides):
+                 app: str | None = None, http: httpx.Client | None = None, **overrides):
         self.config = config or Config.load(config_path, profile, **overrides)
+        self.app = app
         log.debug("config: %s", self.config.source or "built-in defaults")
         self.http = http or _make_client(self.config)
         self.auth = BearerAuth(build_token_provider(self.config, self.http))
@@ -36,15 +38,17 @@ class Relay:
 
     # ---- public API --------------------------------------------------------------
 
-    def chat(self, messages, *, model: str, tools: list[dict] | None = None, files=None, **params) -> Response:
+    def chat(self, messages, *, model: str, tools: list[dict] | None = None, files=None, app: str | None = None,
+             **params) -> Response:
         """Sends the conversation and waits for the full response.
 
         messages: a string or a list of {"role", "content"} dicts (you own the history).
         files:    local image/PDF paths attached to the last user message.
+        app:      which [apps.<app>.models] to use for this call (default: the Relay's app).
         params:   passed to the provider as-is (temperature, max_tokens, ...).
         """
         transport = self.transport(self.config.transport)
-        req, emulated = self._request(transport, messages, model, tools, files, params)
+        req, emulated = self._request(transport, messages, model, tools, files, params, app)
         start = time.monotonic()
         log.info("%s chat via %s model=%s messages=%d", req.trace_id, transport.name, req.model, len(req.messages))
         try:
@@ -57,14 +61,15 @@ class Relay:
         log.info("%s chat done in %.1fs", req.trace_id, time.monotonic() - start)
         return response
 
-    def stream(self, messages, *, model: str, tools: list[dict] | None = None, files=None, **params) -> Iterator[Event]:
+    def stream(self, messages, *, model: str, tools: list[dict] | None = None, files=None, app: str | None = None,
+               **params) -> Iterator[Event]:
         """Same as chat(), but yields Events while waiting. The last one is always "done".
 
         With a text-streaming transport you get "delta" events; with a job transport you get
         "queued" / "running" status events instead. Check `supports_text_stream` if the UI cares.
         """
         transport = self.transport(self.config.stream_transport or self.config.transport)
-        req, emulated = self._request(transport, messages, model, tools, files, params)
+        req, emulated = self._request(transport, messages, model, tools, files, params, app)
         start = time.monotonic()
         log.info("%s stream via %s model=%s messages=%d", req.trace_id, transport.name, req.model, len(req.messages))
         try:
@@ -100,9 +105,13 @@ class Relay:
 
     # ---- internals ---------------------------------------------------------------
 
-    def _request(self, transport, messages, model, tools, files, params) -> tuple[ChatRequest, bool]:
+    def resolve_model(self, model: str, app: str | None = None) -> str:
+        """The provider model a name becomes: [apps.<app>.models], then [models], else the name itself."""
+        return self.config.models_for(app or self.app).get(model, model)
+
+    def _request(self, transport, messages, model, tools, files, params, app=None) -> tuple[ChatRequest, bool]:
         msgs = normalize_messages(messages, files)
-        resolved = self.config.models.get(model, model)
+        resolved = self.resolve_model(model, app)
         emulated = False
         if tools:
             tools = normalize_tools(tools)

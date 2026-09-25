@@ -11,6 +11,9 @@ on localhost, and the config decides where calls really go.
 
 Only the standard library is used. By default it listens on 127.0.0.1 without auth;
 pass `api_key` (or set $MODELRELAY_SERVE_KEY) to require `Authorization: Bearer <key>`.
+
+Apps identify themselves with the `X-Modelrelay-App: <app>` header; model names are then
+resolved with [apps.<app>.models] first, so one server can give each app its own models.
 """
 
 from __future__ import annotations
@@ -28,6 +31,8 @@ from .relay import Relay
 from .types import Image, Response
 
 log = logging.getLogger("modelrelay.server")
+
+APP_HEADER = "X-Modelrelay-App"
 
 # Request fields handled here; everything else goes to the provider as a param.
 _OWN_FIELDS = {"model", "messages", "tools", "stream", "stream_options"}
@@ -81,7 +86,7 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         if path == "/v1/models":
-            names = list(self.server.relay.config.models)
+            names = list(self.server.relay.config.models_for(self._app()))
             return self._json(200, {"object": "list", "data": [
                 {"id": n, "object": "model", "owned_by": "modelrelay"} for n in names]})
         self._error(404, f"Not found: {self.path}")
@@ -101,10 +106,11 @@ class _Handler(BaseHTTPRequestHandler):
 
         model, messages, tools = body["model"], body["messages"], body.get("tools") or None
         params = {k: v for k, v in body.items() if k not in _OWN_FIELDS}
+        app = self._app()
         try:
             if body.get("stream"):
-                return self._stream(model, messages, tools, params)
-            resp = self.server.relay.chat(messages, model=model, tools=tools, **params)
+                return self._stream(model, messages, tools, params, app)
+            resp = self.server.relay.chat(messages, model=model, tools=tools, app=app, **params)
         except ModelRelayError as e:
             return self._relay_error(e)
         except (ValueError, TypeError) as e:  # malformed messages/tools
@@ -113,11 +119,11 @@ class _Handler(BaseHTTPRequestHandler):
 
     # ---- streaming (server-sent events) ----------------------------------------------
 
-    def _stream(self, model, messages, tools, params):
+    def _stream(self, model, messages, tools, params, app=None):
         cid, created = _completion_id(), int(time.time())
         started = sent_text = False
         try:
-            for ev in self.server.relay.stream(messages, model=model, tools=tools, **params):
+            for ev in self.server.relay.stream(messages, model=model, tools=tools, app=app, **params):
                 if not started:
                     self._start_sse()
                     started = True
@@ -161,6 +167,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     # ---- helpers -----------------------------------------------------------------------
+
+    def _app(self) -> str | None:
+        return (self.headers.get(APP_HEADER) or "").strip() or None
 
     def _authorized(self) -> bool:
         key = self.server.api_key

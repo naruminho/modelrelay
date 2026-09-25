@@ -202,6 +202,93 @@ base_url = "https://proxy.example.com/v1"
 
 Both paths share the same token.
 
+### Per-app models
+
+Several apps can share one config (and one `modelrelay serve`) and still use different models.
+The provider, credentials and transports are configured **once**; each app only lists the model
+names it wants resolved differently. Everything it doesn't list comes from `[models]`.
+
+```toml
+base_url = "https://openrouter.ai/api/v1"     # shared by every app
+api_key_env = "OPENROUTER_API_KEY"
+
+[models]                                       # the default for every app
+"text"  = "anthropic/claude-sonnet-5"
+"image" = "google/gemini-2.5-flash-image"
+
+[apps.wotan.models]                            # wotan: a stronger text model, same image model
+"text" = "anthropic/claude-opus-5-5"
+
+[apps.sagadeck.models]                         # sagadeck: same text model, a better image model
+"image" = "google/gemini-3-pro-image"
+```
+
+With that file:
+
+| App asks for | wotan gets | sagadeck gets | any other app gets |
+|---|---|---|---|
+| `text` | `anthropic/claude-opus-5-5` | `anthropic/claude-sonnet-5` | `anthropic/claude-sonnet-5` |
+| `image` | `google/gemini-2.5-flash-image` | `google/gemini-3-pro-image` | `google/gemini-2.5-flash-image` |
+| `openai/gpt-4o` (not an alias) | `openai/gpt-4o` | `openai/gpt-4o` | `openai/gpt-4o` |
+
+How an app says who it is:
+
+```python
+llm = Relay(app="wotan")                         # every call from this Relay
+llm.chat("hi", model="text")                     # -> anthropic/claude-opus-5-5
+llm.chat("hi", model="text", app="sagadeck")     # one call as another app
+llm.resolve_model("text")                        # -> "anthropic/claude-opus-5-5" (no request made)
+```
+
+Through `modelrelay serve`, send the `X-Modelrelay-App` header (Node example):
+
+```js
+await fetch("http://127.0.0.1:8765/v1/chat/completions", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "X-Modelrelay-App": "sagadeck" },
+  body: JSON.stringify({ model: "image", messages: [{ role: "user", content: "a lighthouse at night" }] }),
+});
+```
+
+```bash
+curl -s http://127.0.0.1:8765/v1/chat/completions -H "X-Modelrelay-App: wotan" \
+  -H "Content-Type: application/json" -d '{"model": "text", "messages": [{"role": "user", "content": "hi"}]}'
+```
+
+Check what an app will get before running it:
+
+```text
+$ modelrelay show --app wotan
+config file: C:\Users\you\.modelrelay\config.toml
+models for app 'wotan':
+  text = anthropic/claude-opus-5-5   <- [apps.wotan.models]
+  image = google/gemini-2.5-flash-image
+```
+
+Rules:
+- An app with no section, or a request without the header / `app`, uses `[models]`. Nothing changes for existing apps.
+- `[apps.<app>]` only accepts `models`. Anything else (another `base_url`, other credentials) is a
+  different setup: use a **profile** for that (`modelrelay serve --profile bank`).
+- The config belongs to the machine, not to the app's repository: your laptop, the bank's server
+  and CI can map the same app to different models without touching the app.
+
+### Deploying: the package ships with no config
+
+`pip install modelrelay` installs no config file and no model names, on purpose: which provider,
+which credentials and which models are decisions of each machine. On a new machine:
+
+```bash
+pip install modelrelay
+modelrelay init                        # creates ~/.modelrelay/config.toml (OpenRouter template)
+modelrelay init --template gateway     # or: company gateway (job API + proxy + expiring tokens)
+modelrelay show                        # check it (secrets masked)
+modelrelay show --app sagadeck         # check what one app will get
+modelrelay serve                       # optional: http://127.0.0.1:8765/v1 for non-Python apps
+```
+
+Every template has the `[models]` role aliases (`text`, `image`) and a commented `[apps.*]`
+example. On a shared server, IT can keep one central file and point `$MODELRELAY_CONFIG` at it.
+
 Every option:
 
 | Key | Default | Meaning |
@@ -212,7 +299,8 @@ Every option:
 | `auth` | `static` | `static`, `client_credentials` or a plugin |
 | `api_key` / `api_key_env` | – / `OPENAI_API_KEY` | key for `static` |
 | `auth_options` | `{}` | `token_url`, `token_field`, `ttl_minutes`, `refresh_margin_seconds`, `request_format` (`json`/`form`), `id_field`, `secret_field`, `extra_fields`, `client_id`, `client_secret` (or `client_id_env` / `client_secret_env` to read them from other env vars) |
-| `models` | `{}` | model name map |
+| `models` | `{}` | model name map (names used in code -> provider model) |
+| `apps.<app>.models` | `{}` | per-app overrides of `models` (see [Per-app models](#per-app-models)) |
 | `tools_mode` | `native` | `native` or `emulated` (can also be set per transport) |
 | `verify_ssl` / `ca_bundle` | `true` / – | TLS verification |
 | `timeout_seconds` | `120` | HTTP timeout |
@@ -298,7 +386,8 @@ modelrelay serve                 # http://127.0.0.1:8765/v1  (--port, --host, --
 - `POST /v1/chat/completions`: non-streaming and `stream: true` (SSE). Supports tools, multimodal input
   and generated images, which come back as `message.images`, the same format OpenRouter uses. Other
   fields such as `temperature` or `max_tokens` go straight to the provider.
-- `GET /v1/models` lists the names in `[models]`. `GET /health` always answers without auth.
+- `X-Modelrelay-App: <app>` picks that app's models (`[apps.<app>.models]` over `[models]`); without it, `[models]`.
+- `GET /v1/models` lists the names the caller can use (with the header, that app's). `GET /health` always answers without auth.
 - It listens on 127.0.0.1 with no auth. `--api-key` or `$MODELRELAY_SERVE_KEY` requires `Authorization: Bearer <key>`.
 - A provider error comes back with its HTTP status for 4xx and as 502 otherwise, with the details in `error`.
 
@@ -306,7 +395,7 @@ In Python you can start it inside your own process: `make_server(port=0)` return
 `server.url` gives its address.
 
 Tip: give models **role names** in `[models]` (`"text"`, `"image"`) so apps ask for a role and each
-machine's config picks the actual model.
+machine's config picks the actual model; add `[apps.<app>.models]` when one app needs something else.
 
 ## Mock gateway
 

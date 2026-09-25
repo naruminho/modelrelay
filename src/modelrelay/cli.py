@@ -23,6 +23,14 @@ api_key_env = "OPENROUTER_API_KEY"   # or put the key here: api_key = "sk-or-...
 "gpt-4o-mini" = "openai/gpt-4o-mini"
 "gemini-2.5-flash" = "google/gemini-2.5-flash"
 "gemini-2.5-flash-image" = "google/gemini-2.5-flash-image"
+
+# Per-app models (optional). Provider and credentials above are shared by every app; an app
+# section only lists the names it wants resolved differently. Apps say who they are with the
+# X-Modelrelay-App header (modelrelay serve) or Relay(app="..."). Check with: modelrelay show --app <app>
+# [apps.wotan.models]
+# "text" = "anthropic/claude-opus-5-5"
+# [apps.sagadeck.models]
+# "image" = "google/gemini-3-pro-image"
 ''',
     "openai": '''\
 # modelrelay config: OpenAI
@@ -30,6 +38,15 @@ base_url = "https://api.openai.com/v1"
 api_key_env = "OPENAI_API_KEY"   # or put the key here: api_key = "sk-..."
 
 [models]
+"text" = "gpt-4o"            # role aliases: apps ask for "text", the config decides the real model
+
+# Per-app models (optional). Provider and credentials above are shared by every app; an app
+# section only lists the names it wants resolved differently. Apps say who they are with the
+# X-Modelrelay-App header (modelrelay serve) or Relay(app="..."). Check with: modelrelay show --app <app>
+# [apps.wotan.models]
+# "text" = "anthropic/claude-opus-5-5"
+# [apps.sagadeck.models]
+# "image" = "google/gemini-3-pro-image"
 ''',
     "gateway": '''\
 # modelrelay config: a gateway with a job API, an OpenAI-compatible proxy and expiring tokens.
@@ -54,6 +71,15 @@ client_secret = ""
 
 [models]
 # "gpt-4o" = "region;gpt-4o"
+# "text" = "region;gpt-4o"   # role alias used by apps
+
+# Per-app models (optional). Provider and credentials above are shared by every app; an app
+# section only lists the names it wants resolved differently. Apps say who they are with the
+# X-Modelrelay-App header (modelrelay serve) or Relay(app="..."). Check with: modelrelay show --app <app>
+# [apps.wotan.models]
+# "text" = "anthropic/claude-opus-5-5"
+# [apps.sagadeck.models]
+# "image" = "google/gemini-3-pro-image"
 
 [transports."gateway:GatewayJobs"]
 base_url = "https://gateway.example.com/jobs-api"
@@ -93,10 +119,16 @@ def init(profile: str, template: str) -> int:
     return 0
 
 
-def show(profile: str | None) -> int:
+def show(profile: str | None, app: str | None = None) -> int:
     config = Config.load(profile=profile)
     print(f"config file: {config.source}")
     print(f"adapters folder: {adapters_dir()}")
+    if app:
+        own = (config.apps.get(app) or {}).get("models", {})
+        print(f"models for app '{app}'" + ("" if app in config.apps else f" (no [apps.{app}] section: using [models])") + ":")
+        for name, target in config.models_for(app).items():
+            print(f"  {name} = {target}" + ("   <- [apps.%s.models]" % app if name in own else ""))
+        return 0
     for name, value in vars(config).items():
         if name == "source":
             continue
@@ -122,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_show = sub.add_parser("show", help="print the config in use (secrets masked)")
     p_show.add_argument("--profile")
+    p_show.add_argument("--app", help="only the models this app gets ([models] + [apps.<app>.models])")
 
     p_serve = sub.add_parser("serve", help="local OpenAI-compatible endpoint (/v1/chat/completions) using the config")
     p_serve.add_argument("--profile")
@@ -137,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
             from .server import serve
             serve(host=args.host, port=args.port, api_key=args.api_key, profile=args.profile)
             return 0
-        return show(args.profile)
+        return show(args.profile, args.app)
     except ModelRelayError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
