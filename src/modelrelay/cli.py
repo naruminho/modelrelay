@@ -1,4 +1,5 @@
-"""Command line: `modelrelay init` creates a config, `modelrelay show` prints the one in use."""
+"""Command line: `modelrelay init` creates a config, `modelrelay show` prints the one in use,
+`modelrelay serve` exposes it as a local OpenAI-compatible endpoint."""
 
 from __future__ import annotations
 
@@ -16,17 +17,46 @@ TEMPLATES = {
 base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"   # or put the key here: api_key = "sk-or-..."
 
+# Roles: apps ask for a role, this file picks the model.
+#   "text"  reads: conversation, and the images the app sends (pick a model with image input if the app sends images)
+#   "image" generates images (a model with image output)
+# A role can carry default params, e.g. how hard the model thinks:
+#   "text" = { model = "provider/model", reasoning_effort = "medium" }   # minimal | low | medium | high
 [models]   # name used in code = name the provider expects
+"text" = "google/gemini-2.5-flash"               # reads (text + images)
+"image" = "google/gemini-2.5-flash-image"        # generates images
 "gpt-4o-mini" = "openai/gpt-4o-mini"
 "gemini-2.5-flash" = "google/gemini-2.5-flash"
 "gemini-2.5-flash-image" = "google/gemini-2.5-flash-image"
+
+# Per-app models (optional). Provider and credentials above are shared by every app; an app
+# section only lists the names it wants resolved differently. Apps say who they are with the
+# X-Modelrelay-App header (modelrelay serve) or Relay(app="..."). Check with: modelrelay show --app <app>
+# [apps.wotan.models]
+# "text" = { model = "anthropic/claude-opus-5-5", reasoning_effort = "high" }
+# [apps.sagadeck.models]
+# "image" = "google/gemini-3-pro-image"
 ''',
     "openai": '''\
 # modelrelay config: OpenAI
 base_url = "https://api.openai.com/v1"
 api_key_env = "OPENAI_API_KEY"   # or put the key here: api_key = "sk-..."
 
+# Roles: apps ask for a role, this file picks the model.
+#   "text"  reads: conversation, and the images the app sends (pick a model with image input if the app sends images)
+#   "image" generates images (a model with image output)
+# A role can carry default params, e.g. how hard the model thinks:
+#   "text" = { model = "provider/model", reasoning_effort = "medium" }   # minimal | low | medium | high
 [models]
+"text" = "gpt-4o"            # reads (text + images)
+
+# Per-app models (optional). Provider and credentials above are shared by every app; an app
+# section only lists the names it wants resolved differently. Apps say who they are with the
+# X-Modelrelay-App header (modelrelay serve) or Relay(app="..."). Check with: modelrelay show --app <app>
+# [apps.wotan.models]
+# "text" = { model = "anthropic/claude-opus-5-5", reasoning_effort = "high" }
+# [apps.sagadeck.models]
+# "image" = "google/gemini-3-pro-image"
 ''',
     "gateway": '''\
 # modelrelay config: a gateway with a job API, an OpenAI-compatible proxy and expiring tokens.
@@ -49,8 +79,22 @@ ttl_minutes = 30
 client_id = ""                           # this file stays in your user folder; `modelrelay show` masks these
 client_secret = ""
 
+# Roles: apps ask for a role, this file picks the model.
+#   "text"  reads: conversation, and the images the app sends (pick a model with image input if the app sends images)
+#   "image" generates images (a model with image output)
+# A role can carry default params, e.g. how hard the model thinks:
+#   "text" = { model = "provider/model", reasoning_effort = "medium" }   # minimal | low | medium | high
 [models]
 # "gpt-4o" = "region;gpt-4o"
+# "text" = "region;gpt-4o"   # reads (text + images)
+
+# Per-app models (optional). Provider and credentials above are shared by every app; an app
+# section only lists the names it wants resolved differently. Apps say who they are with the
+# X-Modelrelay-App header (modelrelay serve) or Relay(app="..."). Check with: modelrelay show --app <app>
+# [apps.wotan.models]
+# "text" = { model = "anthropic/claude-opus-5-5", reasoning_effort = "high" }
+# [apps.sagadeck.models]
+# "image" = "google/gemini-3-pro-image"
 
 [transports."gateway:GatewayJobs"]
 base_url = "https://gateway.example.com/jobs-api"
@@ -90,10 +134,18 @@ def init(profile: str, template: str) -> int:
     return 0
 
 
-def show(profile: str | None) -> int:
+def show(profile: str | None, app: str | None = None) -> int:
     config = Config.load(profile=profile)
     print(f"config file: {config.source}")
     print(f"adapters folder: {adapters_dir()}")
+    if app:
+        own = (config.apps.get(app) or {}).get("models", {})
+        print(f"models for app '{app}'" + ("" if app in config.apps else f" (no [apps.{app}] section: using [models])") + ":")
+        for name in config.entries_for(app):
+            target, params = config.route(name, app)
+            extra = "  (" + ", ".join(f"{k}={v}" for k, v in params.items()) + ")" if params else ""
+            print(f"  {name} = {target}{extra}" + ("   <- [apps.%s.models]" % app if name in own else ""))
+        return 0
     for name, value in vars(config).items():
         if name == "source":
             continue
@@ -119,12 +171,23 @@ def main(argv: list[str] | None = None) -> int:
 
     p_show = sub.add_parser("show", help="print the config in use (secrets masked)")
     p_show.add_argument("--profile")
+    p_show.add_argument("--app", help="only the models this app gets ([models] + [apps.<app>.models])")
+
+    p_serve = sub.add_parser("serve", help="local OpenAI-compatible endpoint (/v1/chat/completions) using the config")
+    p_serve.add_argument("--profile")
+    p_serve.add_argument("--host", default="127.0.0.1")
+    p_serve.add_argument("--port", type=int, default=8765)
+    p_serve.add_argument("--api-key", help="require this bearer token (default: $MODELRELAY_SERVE_KEY, else none)")
 
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
             return init(args.profile, args.template)
-        return show(args.profile)
+        if args.command == "serve":
+            from .server import serve
+            serve(host=args.host, port=args.port, api_key=args.api_key, profile=args.profile)
+            return 0
+        return show(args.profile, args.app)
     except ModelRelayError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
