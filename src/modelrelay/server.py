@@ -14,6 +14,11 @@ pass `api_key` (or set $MODELRELAY_SERVE_KEY) to require `Authorization: Bearer 
 
 Apps identify themselves with the `X-Modelrelay-App: <app>` header; model names are then
 resolved with [apps.<app>.models] first, so one server can give each app its own models.
+
+The setup screen (providers, keys, models, apps) is at http://127.0.0.1:8765/. It only answers
+to requests addressed to this machine (Host 127.0.0.1/localhost), so another computer on the
+network can't reach it even with --host 0.0.0.0. Behind a login proxy, pass `public_url` (the
+address people open) so that one is accepted too. See console.py.
 """
 
 from __future__ import annotations
@@ -23,10 +28,16 @@ import json
 import logging
 import os
 import time
+import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files
+from pathlib import Path
+from urllib.parse import urlsplit
 
-from .errors import ModelRelayError, ProviderError
+from . import console
+from .config import DEFAULT_PROFILE, Config, _read, config_dir
+from .errors import ConfigError, ModelRelayError, ProviderError
 from .relay import Relay
 from .types import Image, Response
 
@@ -41,10 +52,20 @@ _OWN_FIELDS = {"model", "messages", "tools", "stream", "stream_options"}
 class RelayServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, relay: Relay, api_key: str | None):
+    def __init__(self, address, relay: Relay, api_key: str | None, config_path: Path | None = None,
+                 public_url: str | None = None):
         super().__init__(address, _Handler)
         self.relay = relay
         self.api_key = api_key
+        self.config_path = Path(config_path) if config_path else relay.config.source  # the setup screen edits this
+        self.console_hosts = {"127.0.0.1", "localhost", "::1"} | ({urlsplit(public_url).hostname} if public_url else set())
+        self.apps_seen: set[str] = set()
+        self.lock = threading.Lock()
+
+    def reload(self) -> None:
+        """Picks up the file saved by the setup screen; calls in flight finish on the old Relay."""
+        old, self.relay = self.relay, Relay(Config.load(self.config_path))
+        old.close()
 
     @property
     def url(self) -> str:
@@ -53,15 +74,26 @@ class RelayServer(ThreadingHTTPServer):
 
 
 def make_server(relay: Relay | None = None, *, host: str = "127.0.0.1", port: int = 8765,
-                api_key: str | None = None, profile: str | None = None) -> RelayServer:
-    relay = relay or Relay(profile=profile)
+                api_key: str | None = None, profile: str | None = None, config_path=None,
+                public_url: str | None = None) -> RelayServer:
+    if relay is None:
+        try:
+            relay = Relay(profile=profile)
+        except ConfigError:
+            # No file yet: start anyway, so the setup screen can create it.
+            config_path = config_path or os.environ.get("MODELRELAY_CONFIG") or config_dir() / f"{profile or DEFAULT_PROFILE}.toml"
+            if Path(config_path).is_file():
+                raise  # the file exists but is broken: say so instead of hiding it
+            relay = Relay(Config.from_dict({}))
     api_key = api_key or os.environ.get("MODELRELAY_SERVE_KEY") or None
-    return RelayServer((host, port), relay, api_key)
+    return RelayServer((host, port), relay, api_key, config_path, public_url)
 
 
 def serve(**kwargs) -> None:
     server = make_server(**kwargs)
-    print(f"modelrelay serving {server.url} (config: {server.relay.config.source or 'built-in defaults'})", flush=True)
+    host, port = server.server_address[:2]
+    print(f"modelrelay serving {server.url} (config: {server.config_path})", flush=True)
+    print(f"setup screen: http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}/", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -81,6 +113,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0].rstrip("/")
+        if path in ("", "/console") or path.startswith("/api/console/"):
+            return self._console("GET", path)
         if path in ("/health", "/v1/health"):
             return self._json(200, {"ok": True, "config": str(self.server.relay.config.source or "")})
         if not self._authorized():
@@ -92,9 +126,11 @@ class _Handler(BaseHTTPRequestHandler):
         self._error(404, f"Not found: {self.path}")
 
     def do_POST(self):
+        path = self.path.split("?")[0].rstrip("/")
+        if path.startswith("/api/console/"):
+            return self._console("POST", path)
         if not self._authorized():
             return
-        path = self.path.split("?")[0].rstrip("/")
         if path != "/v1/chat/completions":
             return self._error(404, f"Not found: {self.path}")
         try:
@@ -169,7 +205,62 @@ class _Handler(BaseHTTPRequestHandler):
     # ---- helpers -----------------------------------------------------------------------
 
     def _app(self) -> str | None:
-        return (self.headers.get(APP_HEADER) or "").strip() or None
+        app = (self.headers.get(APP_HEADER) or "").strip() or None
+        if app and len(app) <= 64:
+            self.server.apps_seen.add(app)
+        return app
+
+    # ---- setup screen ------------------------------------------------------------------
+
+    def _console(self, method: str, path: str):
+        server = self.server
+        host = urlsplit("//" + (self.headers.get("Host") or "")).hostname
+        origin = self.headers.get("Origin")
+        if host not in server.console_hosts or (origin and urlsplit(origin).hostname not in server.console_hosts):
+            # another machine, or a web page trying to reach this one (DNS rebinding, CSRF)
+            return self._error(403, "The setup screen only opens on this machine: http://127.0.0.1:%d/" % server.server_address[1])
+        if method == "GET" and path in ("", "/console"):
+            page = (files("modelrelay") / "console.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(page)))
+            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'self'")
+            self.end_headers()
+            return self.wfile.write(page)
+        if method == "GET" and path == "/api/console/config":
+            return self._json(200, self._console_state())
+        if method != "POST":
+            return self._error(404, f"Not found: {self.path}")
+        if not (self.headers.get("Content-Type") or "").startswith("application/json"):
+            return self._error(415, "Send JSON")  # a plain HTML form from another site can't do that
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            return self._error(400, f"Invalid JSON: {e}")
+        if path == "/api/console/test":
+            return self._json(200, console.check_provider(body.get("provider") or {}, self._raw(), body.get("name")))
+        if path == "/api/console/save":
+            if not server.config_path:
+                return self._json(400, {"error": {"message": "This server was started without a config file."}})
+            with server.lock:
+                try:
+                    raw = console.apply(body.get("config") or {}, self._raw())
+                    backup = console.save(server.config_path, raw)
+                    server.reload()
+                except ConfigError as e:
+                    return self._json(400, {"error": {"message": str(e)}})
+            log.info("config saved by the setup screen: %s", server.config_path)
+            return self._json(200, {**self._console_state(), "backup": str(backup) if backup else None})
+        self._error(404, f"Not found: {self.path}")
+
+    def _raw(self) -> dict:
+        path = self.server.config_path
+        return _read(path) if path and path.is_file() else {}
+
+    def _console_state(self) -> dict:
+        path = self.server.config_path
+        return {"path": str(path or ""), "exists": bool(path and path.is_file()),
+                "config": console.view(self._raw()), "apps_seen": sorted(self.server.apps_seen)}
 
     def _authorized(self) -> bool:
         key = self.server.api_key

@@ -10,7 +10,7 @@ import httpx
 from ._util import load_object, log
 from .auth import BearerAuth, build_token_provider
 from .config import Config
-from .errors import InvalidToolCall, ModelRelayError
+from .errors import ConfigError, InvalidToolCall, ModelRelayError
 from .messages import normalize_messages
 from .tools import normalize_tools, parse_emulated, to_emulated
 from .transports import BUILTIN_TRANSPORTS, Transport
@@ -35,6 +35,7 @@ class Relay:
         self.http = http or _make_client(self.config)
         self.auth = BearerAuth(build_token_provider(self.config, self.http))
         self._transports: dict[str, Transport] = {}
+        self._providers: dict[str, Relay] = {}  # [providers.<name>], created on first use
 
     # ---- public API --------------------------------------------------------------
 
@@ -47,7 +48,8 @@ class Relay:
         app:      which [apps.<app>.models] to use for this call (default: the Relay's app).
         params:   passed to the provider as-is (temperature, max_tokens, ...).
         """
-        transport = self.transport(self.config.transport)
+        target = self._target(model, app)
+        transport = target.transport(target.config.transport)
         req, emulated = self._request(transport, messages, model, tools, files, params, app)
         start = time.monotonic()
         log.info("%s chat via %s model=%s messages=%d", req.trace_id, transport.name, req.model, len(req.messages))
@@ -68,7 +70,8 @@ class Relay:
         With a text-streaming transport you get "delta" events; with a job transport you get
         "queued" / "running" status events instead. Check `supports_text_stream` if the UI cares.
         """
-        transport = self.transport(self.config.stream_transport or self.config.transport)
+        target = self._target(model, app)
+        transport = target.transport(target.config.stream_transport or target.config.transport)
         req, emulated = self._request(transport, messages, model, tools, files, params, app)
         start = time.monotonic()
         log.info("%s stream via %s model=%s messages=%d", req.trace_id, transport.name, req.model, len(req.messages))
@@ -94,7 +97,21 @@ class Relay:
             self._transports[name] = cls(self.http, self.auth, self.config, self.config.transport_options(name))
         return self._transports[name]
 
+    def provider(self, name: str) -> Relay:
+        """The Relay for one [providers.<name>] (shares nothing but the process with the others)."""
+        if name not in self._providers:
+            if name not in self.config.providers:
+                raise ConfigError(f'No [providers.{name}] in {self.config.source or "the config"}')
+            self._providers[name] = Relay(self.config.for_provider(name), app=self.app)
+        return self._providers[name]
+
+    def _target(self, model: str, app: str | None) -> Relay:
+        name = self.config.provider_for(model, app or self.app)
+        return self.provider(name) if name else self
+
     def close(self) -> None:
+        for sub in self._providers.values():
+            sub.close()
         self.http.close()
 
     def __enter__(self) -> Relay:

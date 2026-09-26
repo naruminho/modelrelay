@@ -54,6 +54,12 @@ class Config:
     # Per-transport options, e.g. [transports.jobs] poll_interval = 1.0
     transports: dict = field(default_factory=dict)
 
+    # More than one provider: [providers.<name>] holds the same connection keys as the top of the
+    # file (base_url, auth, api_key, transport...). A model entry picks one with `provider = "<name>"`;
+    # entries without it use `provider` below, or the connection at the top of the file when unset.
+    providers: dict = field(default_factory=dict)
+    provider: str | None = None
+
     @classmethod
     def load(cls, path: str | Path | None = None, profile: str | None = None, **overrides) -> Config:
         """Loads the config file, in this order:
@@ -84,6 +90,20 @@ class Config:
             raise ConfigError("tools_mode must be 'native' or 'emulated'")
         _check_models(config.models, "[models]")
         _check_apps(config.apps)
+        _check_providers(config)
+        return config
+
+    def provider_for(self, name: str, app: str | None = None) -> str | None:
+        """Which [providers.<name>] serves a model name (None: the connection at the top of the file)."""
+        entry = self.entries_for(app).get(name)
+        own = entry.get("provider") if isinstance(entry, dict) else None
+        return own or self.provider
+
+    def for_provider(self, name: str) -> Config:
+        """The connection settings of one provider, as a standalone Config. Nothing is inherited from
+        the top of the file, so one provider's key never reaches another provider's URL."""
+        config = Config.from_dict(dict(self.providers[name]))
+        config.source = self.source
         return config
 
     def entries_for(self, app: str | None = None) -> dict:
@@ -110,8 +130,33 @@ class Config:
 def _split(entry) -> tuple[str, dict]:
     if isinstance(entry, str):
         return entry, {}
-    params = {k: v for k, v in entry.items() if k != "model"}
+    params = {k: v for k, v in entry.items() if k not in ("model", "provider")}
     return entry["model"], params
+
+
+# Keys a [providers.<name>] section can hold: the connection, not the model maps.
+PROVIDER_KEYS = {"transport", "stream_transport", "base_url", "auth", "api_key", "api_key_env", "auth_options",
+                 "tools_mode", "verify_ssl", "ca_bundle", "timeout_seconds", "max_payload_mb", "headers", "transports"}
+
+
+def _check_providers(config) -> None:
+    if not isinstance(config.providers, dict):
+        raise ConfigError("providers must be tables: [providers.<name>]")
+    for name, section in config.providers.items():
+        if not isinstance(section, dict):
+            raise ConfigError(f'[providers.{name}] must be a table, e.g. [providers.{name}] base_url = "https://..."')
+        unknown = set(section) - PROVIDER_KEYS
+        if unknown:
+            raise ConfigError(f"Unknown keys in [providers.{name}]: {sorted(unknown)}. A provider only holds the "
+                              f"connection ({', '.join(sorted(PROVIDER_KEYS))}); models go in [models].")
+    used = [("provider", config.provider)] if config.provider else []
+    for where, models in [("[models]", config.models)] + [
+            (f"[apps.{a}.models]", (s or {}).get("models", {})) for a, s in config.apps.items()]:
+        used += [(f'{where} "{n}"', e.get("provider")) for n, e in models.items() if isinstance(e, dict) and e.get("provider")]
+    for where, name in used:
+        if name not in config.providers:
+            known = ", ".join(sorted(config.providers)) or "none yet"
+            raise ConfigError(f'{where} uses provider "{name}", but there is no [providers.{name}] (known: {known})')
 
 
 def _check_models(models, where: str) -> None:
