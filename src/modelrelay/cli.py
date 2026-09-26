@@ -1,5 +1,5 @@
 """Command line: `modelrelay init` creates a config, `modelrelay show` prints the one in use,
-`modelrelay serve` exposes it as a local OpenAI-compatible endpoint."""
+`modelrelay serve` exposes it as a local OpenAI-compatible endpoint, with a setup screen at /."""
 
 from __future__ import annotations
 
@@ -143,6 +143,8 @@ def show(profile: str | None, app: str | None = None) -> int:
         print(f"models for app '{app}'" + ("" if app in config.apps else f" (no [apps.{app}] section: using [models])") + ":")
         for name in config.entries_for(app):
             target, params = config.route(name, app)
+            provider = config.provider_for(name, app)
+            params = {**({"provider": provider} if provider and config.providers else {}), **params}
             extra = "  (" + ", ".join(f"{k}={v}" for k, v in params.items()) + ")" if params else ""
             print(f"  {name} = {target}{extra}" + ("   <- [apps.%s.models]" % app if name in own else ""))
         return 0
@@ -178,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     p_serve.add_argument("--host", default="127.0.0.1")
     p_serve.add_argument("--port", type=int, default=8765)
     p_serve.add_argument("--api-key", help="require this bearer token (default: $MODELRELAY_SERVE_KEY, else none)")
+    p_serve.add_argument("--public-url", help="address of the setup screen behind a login proxy, e.g. https://example.com/ia/")
 
     args = parser.parse_args(argv)
     try:
@@ -185,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
             return init(args.profile, args.template)
         if args.command == "serve":
             from .server import serve
-            serve(host=args.host, port=args.port, api_key=args.api_key, profile=args.profile)
+            serve(host=args.host, port=args.port, api_key=args.api_key, profile=args.profile, public_url=args.public_url)
             return 0
         return show(args.profile, args.app)
     except ModelRelayError as e:

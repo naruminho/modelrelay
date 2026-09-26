@@ -152,6 +152,8 @@ def make_handler(state: MockState):
                 return
             if self.path.startswith("/v1/jobs/"):
                 return self._poll(self.path.rsplit("/", 1)[1])
+            if self.path == "/v1/models":
+                return self._send(200, {"object": "list", "data": [{"id": "mock-fast"}, {"id": "mock-image"}]})
             self._send(404, {"detail": "not found"})
 
         def _token(self):

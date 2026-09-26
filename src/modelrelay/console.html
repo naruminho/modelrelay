@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IA · modelrelay</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%236d4aff%22/%3E%3Ccircle cx=%2210%22 cy=%2216%22 r=%223%22 fill=%22white%22/%3E%3Ccircle cx=%2222%22 cy=%2210%22 r=%223%22 fill=%22white%22/%3E%3Ccircle cx=%2222%22 cy=%2222%22 r=%223%22 fill=%22white%22/%3E%3Cpath d=%22M10 16L22 10M10 16L22 22%22 stroke=%22white%22 stroke-width=%222%22/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f5f5f7; --panel: #ffffff; --panel-2: #f0f0f3; --line: #e3e3e8; --line-strong: #cfcfd6;
+    --text: #1b1b1f; --text-2: #4a4a55; --text-3: #7a7a86; --brand: #6d4aff; --brand-soft: #efeaff; --on-brand: #fff;
+    --ok: #107c41; --ok-soft: #e6f4ec; --err: #c4314b; --err-soft: #fbe9ec; --hover: rgba(0,0,0,.045);
+    --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151518; --panel: #1f1f23; --panel-2: #26262b; --line: #313137; --line-strong: #44444c;
+      --text: #ececf1; --text-2: #b9b9c3; --text-3: #8a8a96; --brand: #9b85ff; --brand-soft: #2a2442; --on-brand: #fff;
+      --ok: #5cc98a; --ok-soft: #173325; --err: #ff8599; --err-soft: #3a1c22; --hover: rgba(255,255,255,.06);
+      --shadow: 0 1px 2px rgba(0,0,0,.4);
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  .top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .logo { width: 30px; height: 30px; border-radius: 8px; background: var(--brand); display: grid; place-items: center; }
+  .brand b { display: block; font-size: 15px; }
+  .brand span { font-size: 12px; color: var(--text-3); }
+  .top .spacer { flex: 1; }
+  .file { font-size: 12px; color: var(--text-3); max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  main { max-width: 880px; margin: 0 auto; padding: 28px 16px 120px; }
+  section { margin-bottom: 36px; }
+  h2 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--text-3); margin: 0 0 16px; }
+  .banner { padding: 14px 16px; border-radius: 10px; background: var(--brand-soft); margin-bottom: 26px; }
+  .banner b { display: block; margin-bottom: 2px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 12px; }
+  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .card-head .name { font-weight: 650; font-size: 15px; border: 1px solid transparent; background: none; border-radius: 6px; padding: 2px 6px; margin-left: -6px; min-width: 0; width: 180px; }
+  .card-head .name:hover, .card-head .name:focus { border-color: var(--line-strong); outline: none; }
+  .badge { font-size: 11.5px; padding: 2px 8px; border-radius: 10px; background: var(--panel-2); color: var(--text-2); white-space: nowrap; }
+  .badge.main { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+  .card-head .spacer { flex: 1; }
+
+  .fields { display: grid; grid-template-columns: 150px 1fr; gap: 10px 14px; align-items: center; }
+  .fields label { color: var(--text-2); font-size: 13px; }
+  .fields .hint { grid-column: 2; font-size: 12px; color: var(--text-3); margin-top: -6px; }
+  input[type=text], input[type=password], input[type=number], select {
+    height: 34px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--panel); padding: 0 10px; width: 100%; min-width: 0;
+  }
+  input:focus, select:focus { outline: 2px solid var(--brand); outline-offset: -1px; border-color: transparent; }
+  .saved-key { display: flex; align-items: center; gap: 10px; height: 34px; }
+  .saved-key code { background: var(--panel-2); padding: 3px 8px; border-radius: 6px; font-size: 12.5px; }
+  details { grid-column: 1 / -1; }
+  details summary { cursor: pointer; color: var(--text-3); font-size: 13px; margin: 4px 0; }
+  details .fields { margin-top: 10px; }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--panel); cursor: pointer; font-weight: 500; white-space: nowrap; }
+  .btn:hover { background: var(--hover); }
+  .btn.primary { background: var(--brand); border-color: var(--brand); color: var(--on-brand); font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.link { border: 0; background: none; color: var(--brand); padding: 0 4px; height: auto; }
+  .btn.quiet { border: 0; background: none; color: var(--text-3); padding: 0 8px; }
+  .btn.quiet:hover { color: var(--err); background: var(--err-soft); }
+  .btn:disabled { opacity: .55; cursor: default; }
+  .row-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .result { font-size: 13px; padding: 4px 10px; border-radius: 6px; }
+  .result.ok { background: var(--ok-soft); color: var(--ok); }
+  .result.err { background: var(--err-soft); color: var(--err); word-break: break-word; }
+
+  .kinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-top: 10px; }
+  .kind { text-align: left; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+  .kind:hover { border-color: var(--brand); }
+  .kind b { display: block; }
+  .kind span { font-size: 12px; color: var(--text-3); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-3); padding: 0 8px 6px 0; }
+  td { padding: 4px 8px 4px 0; vertical-align: middle; }
+  td.role { width: 26%; }
+  td.role b { display: block; }
+  td.role span { font-size: 12px; color: var(--text-3); }
+  td.prov { width: 20%; }
+  td.eff { width: 16%; }
+  td.x { width: 36px; padding-right: 0; }
+  .app-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .app-head b { font-size: 15px; }
+  .muted { color: var(--text-3); font-size: 13px; }
+
+  .savebar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(140%); transition: transform .2s; display: flex; align-items: center; gap: 12px;
+    background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; padding: 10px 12px 10px 18px; box-shadow: 0 8px 30px rgba(0,0,0,.18); z-index: 10; max-width: calc(100vw - 32px); }
+  .savebar.show { transform: translateX(-50%); }
+  .toast { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); padding: 10px 16px; border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.15); z-index: 11; max-width: calc(100vw - 32px); }
+  .toast.ok { background: var(--ok-soft); color: var(--ok); }
+  .toast.err { background: var(--err-soft); color: var(--err); }
+  .hidden { display: none !important; }
+
+  @media (max-width: 640px) {
+    .fields { grid-template-columns: 1fr; gap: 4px; }
+    .fields .hint { grid-column: 1; margin: 0 0 6px; }
+    .fields label { margin-top: 6px; }
+    .file { display: none; }
+    table, tbody, tr, td { display: block; width: 100% !important; }
+    thead { display: none; }
+    tr { border-top: 1px solid var(--line); padding: 8px 0; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="logo"><svg width="18" height="18" viewBox="0 0 32 32" fill="none"><circle cx="10" cy="16" r="3" fill="#fff"/><circle cx="22" cy="10" r="3" fill="#fff"/><circle cx="22" cy="22" r="3" fill="#fff"/><path d="M10 16L22 10M10 16L22 22" stroke="#fff" stroke-width="2"/></svg></div>
+  <div class="brand"><b>IA</b><span>modelrelay: provedores e modelos dos seus apps</span></div>
+  <div class="spacer"></div>
+  <div class="file" id="file"></div>
+</header>
+
+<main>
+  <div class="banner hidden" id="first">
+    <b>Vamos configurar a IA</b>
+    Escolha um provedor abaixo, cole a chave e teste. Depois diga qual modelo faz cada papel. Tudo fica num arquivo nesta máquina.
+  </div>
+
+  <section>
+    <h2>Provedores</h2>
+    <p class="lead">Onde os modelos rodam. As chaves ficam só neste computador; depois de salvas, a tela mostra só o final delas.</p>
+    <div id="providers"></div>
+    <button class="btn link" id="show-kinds">+ Adicionar provedor</button>
+    <div class="card" id="add-card">
+      <b>Adicionar provedor</b>
+      <div class="kinds" id="kinds"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Modelos</h2>
+    <p class="lead">Os apps pedem um papel (<b>texto</b> ou <b>imagem</b>); aqui você escolhe que modelo faz cada um. Vale para todos os apps, a não ser que um app troque abaixo.</p>
+    <div class="card"><table id="models"></table>
+      <div class="row-actions"><button class="btn link" id="add-alias">+ Outro nome</button></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Por app</h2>
+    <p class="lead">Só se um app precisar de algo diferente do padrão. Os apps que já usaram a IA aparecem aqui.</p>
+    <div id="apps"></div>
+    <div class="row-actions"><button class="btn link" id="add-app">+ Configurar outro app</button></div>
+  </section>
+</main>
+
+<div class="savebar" id="savebar">
+  <span>Alterações não salvas</span>
+  <button class="btn" id="discard">Descartar</button>
+  <button class="btn primary" id="save">Salvar</button>
+</div>
+<div id="lists"></div>
+
+<script>
+"use strict";
+// Tipos de provedor: só preenchem o formulário; no arquivo fica o endereço e a chave.
+const KINDS = {
+  openrouter: { label: "OpenRouter", desc: "Centenas de modelos com uma chave", base_url: "https://openrouter.ai/api/v1", env: "OPENROUTER_API_KEY", host: "openrouter.ai" },
+  openai: { label: "OpenAI", desc: "GPT e geração de imagens", base_url: "https://api.openai.com/v1", env: "OPENAI_API_KEY", host: "api.openai.com" },
+  google: { label: "Google Gemini", desc: "Gemini, pela API compatível", base_url: "https://generativelanguage.googleapis.com/v1beta/openai", env: "GEMINI_API_KEY", host: "generativelanguage.googleapis.com" },
+  deepseek: { label: "DeepSeek", desc: "Modelos DeepSeek direto", base_url: "https://api.deepseek.com/v1", env: "DEEPSEEK_API_KEY", host: "api.deepseek.com" },
+  anthropic: { label: "Anthropic", desc: "Claude, pela API compatível", base_url: "https://api.anthropic.com/v1", env: "ANTHROPIC_API_KEY", host: "api.anthropic.com" },
+  custom: { label: "Compatível com OpenAI", desc: "Qualquer endereço /chat/completions (Ollama, proxy…)", base_url: "", env: "" },
+  corp: { label: "Gateway corporativo", desc: "Token que expira (client id + secret), adaptador próprio", base_url: "", env: "" },
+};
+const ROLES = { text: ["Texto", "conversa, e lê as imagens que o app manda"], image: ["Imagem", "gera imagens"] };
+const EFFORTS = [["", "padrão"], ["minimal", "mínimo"], ["low", "baixo"], ["medium", "médio"], ["high", "alto"]];
+
+let showKinds = false;
+let state = null, doc = null, clean = "", modelsByProvider = {}, tests = {};
+const $ = (s) => document.querySelector(s);
+const el = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) e.append(k.nodeType ? k : String(k));
+  return e;
+};
+
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((data.error && data.error.message) || "HTTP " + r.status);
+  return data;
+}
+
+function kindOf(p) {
+  if (p.auth === "client_credentials" || (p.transport && p.transport !== "openai_compatible")) return "corp";
+  const url = p.base_url || "https://api.openai.com/v1";
+  return Object.keys(KINDS).find((k) => KINDS[k].host && url.includes(KINDS[k].host)) || "custom";
+}
+
+function changed() { $("#savebar").classList.toggle("show", JSON.stringify(doc) !== clean); }
+function toast(msg, ok = true) {
+  const t = el("div", { class: "toast " + (ok ? "ok" : "err") }, msg);
+  document.body.append(t);
+  setTimeout(() => t.remove(), ok ? 3500 : 7000);
+}
+
+async function load() {
+  state = await api("api/console/config");
+  doc = state.config;
+  doc.providers = doc.providers || {}; doc.models = doc.models || {}; doc.apps = doc.apps || {};
+  for (const r of Object.keys(ROLES)) if (!doc.models[r]) doc.models[r] = { model: "" };
+  clean = JSON.stringify(doc);
+  $("#file").textContent = state.path;
+  $("#file").title = state.path;
+  render();
+  changed();
+}
+
+function render() {
+  $("#first").classList.toggle("hidden", Object.keys(doc.providers).length > 0);
+  renderProviders();
+  renderModels();
+  renderApps();
+  // sugestões de modelo: uma lista por provedor testado
+  $("#lists").replaceChildren(el("datalist", { id: "dl-all" }), ...Object.entries(modelsByProvider).map(([p, ms]) =>
+    el("datalist", { id: "dl-p-" + p }, ...ms.map((m) => el("option", { value: m })))));
+}
+
+// ---- provedores -------------------------------------------------------------------------
+
+function renderProviders() {
+  const box = $("#providers");
+  box.replaceChildren(...Object.entries(doc.providers).map(([name, p]) => providerCard(name, p)));
+  const has = Object.keys(doc.providers).length > 0;
+  $("#add-card").classList.toggle("hidden", has && !showKinds);
+  $("#show-kinds").classList.toggle("hidden", !has || showKinds);
+  $("#kinds").replaceChildren(...Object.entries(KINDS).map(([k, v]) =>
+    el("button", { class: "kind", "data-kind": k, onclick: () => addProvider(k) }, el("b", {}, v.label), el("span", {}, v.desc))));
+}
+
+function field(label, input, hint) {
+  return [el("label", {}, label), input, hint ? el("div", { class: "hint" }, hint) : null];
+}
+function text(obj, key, attrs = {}) {
+  return el("input", { type: "text", value: obj[key] ?? "", spellcheck: "false", ...attrs, oninput: (e) => { obj[key] = e.target.value; changed(); } });
+}
+// Chave salva: aparece só o final. "Trocar" abre o campo; deixar vazio mantém a salva.
+const saved = new WeakMap(), editing = new WeakSet();
+function secret(p, owner, key, label) {
+  const v = owner[key];
+  if (v && typeof v === "object" && v.$secret) saved.set(owner, { ...(saved.get(owner) || {}), [key]: v });
+  const old = (saved.get(owner) || {})[key];
+  if (old && owner[key] === old && !editing.has(old)) {
+    return field(label, el("div", { class: "saved-key" }, el("code", {}, "salva " + old.$secret),
+      el("button", { class: "btn link", onclick: () => { editing.add(old); render(); document.querySelector(`[data-secret="${key}"]`)?.focus(); } }, "Trocar")));
+  }
+  return field(label, el("input", { type: "password", value: typeof v === "string" ? v : "", autocomplete: "off", spellcheck: "false", "data-secret": key,
+    placeholder: old ? "nova chave (vazio mantém a salva)" : "cole aqui",
+    oninput: (e) => { owner[key] = e.target.value || old || ""; changed(); } }));
+}
+
+function providerCard(name, p) {
+  const kind = kindOf(p), K = KINDS[kind], isMain = doc.provider === name;
+  const t = tests[name];
+  const result = el("span", { class: t ? "result " + (t.ok ? "ok" : "err") : "result hidden" }, t ? t.message : "");
+  const head = el("div", { class: "card-head" },
+    el("input", { class: "name", value: name, "aria-label": "nome do provedor", spellcheck: "false", onchange: (e) => renameProvider(name, e.target.value) }),
+    el("span", { class: "badge" }, K.label),
+    isMain ? el("span", { class: "badge main", title: "usado pelos modelos que não dizem outro" }, "principal") : null,
+    el("div", { class: "spacer" }),
+    isMain ? null : el("button", { class: "btn link", onclick: () => { doc.provider = name; changed(); render(); } }, "Tornar principal"),
+    el("button", { class: "btn quiet", title: "remover provedor", onclick: () => removeProvider(name) }, "Remover"));
+
+  const f = [];
+  if (kind === "corp") {
+    p.auth_options = p.auth_options || {};
+    f.push(...field("Endereço da API", text(p, "base_url", { placeholder: "https://gateway.empresa/v1" })));
+    f.push(...field("Adaptador", text(p, "transport", { placeholder: "openai_compatible ou arquivo:Classe" }),
+      "Como as chamadas chegam: openai_compatible, ou um adaptador em ~/.modelrelay/adapters (ex.: gateway:GatewayJobs)."));
+    f.push(...field("Endereço do token", text(p.auth_options, "token_url", { placeholder: "https://identidade.empresa/token" })));
+    f.push(...secret(p, p.auth_options, "client_id", "Client ID"));
+    f.push(...secret(p, p.auth_options, "client_secret", "Client secret"));
+    f.push(el("details", {}, el("summary", {}, "Avançado"), el("div", { class: "fields" },
+      ...field("Streaming por", text(p, "stream_transport", { placeholder: "o mesmo adaptador" })),
+      ...field("Campo do token", text(p.auth_options, "token_field", { placeholder: "access_token" })),
+      ...field("Token vale (min)", numberInput(p.auth_options, "ttl_minutes", 30)),
+      ...field("Certificado (CA)", text(p, "ca_bundle", { placeholder: "C:/certs/empresa.pem" })),
+      ...field("Ferramentas", select(p, "tools_mode", [["", "nativas"], ["emulated", "emuladas no prompt"]])),
+    )));
+  } else {
+    const envMode = !p.api_key && !!p.api_key_env;
+    if (envMode) {
+      f.push(...field("Variável de ambiente", text(p, "api_key_env"), el("span", {}, "A chave vem desta variável. ",
+        el("button", { class: "btn link", onclick: () => { delete p.api_key_env; p.api_key = ""; changed(); render(); } }, "Colar a chave aqui"))));
+    } else {
+      f.push(...secret(p, p, "api_key", "Chave da API"));
+      f.push(el("div", { class: "hint" }, el("button", { class: "btn link", onclick: () => { p.api_key = null; delete p.api_key; p.api_key_env = K.env || "API_KEY"; changed(); render(); } }, "Usar uma variável de ambiente")));
+    }
+    if (kind === "custom") f.push(...field("Endereço da API", text(p, "base_url", { placeholder: "http://localhost:11434/v1" })));
+    else f.push(el("details", {}, el("summary", {}, "Avançado"), el("div", { class: "fields" },
+      ...field("Endereço da API", text(p, "base_url")))));
+  }
+
+  const test = el("button", { class: "btn", onclick: async () => {
+    test.disabled = true; result.className = "result"; result.textContent = "Testando…";
+    try {
+      const r = await api("api/console/test", { name, provider: p });
+      tests[name] = r;
+      if (r.ok && r.models.length) modelsByProvider[name] = r.models;
+    } catch (e) { tests[name] = { ok: false, message: e.message }; }
+    render();
+  } }, "Testar conexão");
+
+  return el("div", { class: "card", "data-provider": name }, head, el("div", { class: "fields" }, ...f), el("div", { class: "row-actions" }, test, result));
+}
+
+function numberInput(obj, key, placeholder) {
+  return el("input", { type: "number", min: "1", value: obj[key] ?? "", placeholder, oninput: (e) => { obj[key] = e.target.value === "" ? "" : Number(e.target.value); changed(); } });
+}
+function select(obj, key, options, onchange) {
+  const s = el("select", { onchange: (e) => { if (e.target.value) obj[key] = e.target.value; else delete obj[key]; changed(); onchange && onchange(); } },
+    ...options.map(([v, label]) => el("option", { value: v, selected: (obj[key] ?? "") === v }, label)));
+  return s;
+}
+
+function addProvider(kind) {
+  showKinds = false;
+  const K = KINDS[kind];
+  let base = kind === "corp" || kind === "custom" ? "empresa" : kind, name = base, i = 2;
+  if (kind === "custom") base = name = "local";
+  while (doc.providers[name]) name = base + i++;
+  doc.providers[name] = kind === "corp"
+    ? { base_url: "", transport: "openai_compatible", auth: "client_credentials", auth_options: { token_url: "", client_id: "", client_secret: "" } }
+    : { base_url: K.base_url, api_key: "" };
+  if (!doc.provider) doc.provider = name;
+  changed(); render();
+  const card = document.querySelector(`[data-provider="${CSS.escape(name)}"]`);
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  const first = card.querySelector("input[type=password], .fields input"); first && first.focus();
+}
+
+function eachEntry(fn) {
+  for (const e of Object.values(doc.models)) fn(e);
+  for (const a of Object.values(doc.apps)) for (const e of Object.values(a.models || {})) fn(e);
+}
+function renameProvider(old, name) {
+  name = name.trim().replace(/[^A-Za-z0-9_-]+/g, "-");
+  if (!name || name === old || doc.providers[name]) { render(); return; }
+  const out = {};
+  for (const [k, v] of Object.entries(doc.providers)) out[k === old ? name : k] = v;
+  doc.providers = out;
+  if (doc.provider === old) doc.provider = name;
+  eachEntry((e) => { if (e.provider === old) e.provider = name; });
+  modelsByProvider[name] = modelsByProvider[old];
+  changed(); render();
+}
+function removeProvider(name) {
+  let used = 0;
+  eachEntry((e) => { if (e.provider === name) used++; });
+  if (!confirm(`Remover o provedor "${name}"?` + (used ? `\n${used} modelo(s) que usam ele voltam para o principal.` : ""))) return;
+  delete doc.providers[name];
+  eachEntry((e) => { if (e.provider === name) delete e.provider; });
+  if (doc.provider === name) doc.provider = Object.keys(doc.providers)[0];
+  if (!doc.provider) delete doc.provider;
+  changed(); render();
+}
+
+// ---- modelos ----------------------------------------------------------------------------
+
+function modelRow(models, name, { removable, roleCell }) {
+  const e = models[name];
+  const provs = Object.keys(doc.providers);
+  const current = e.provider || doc.provider;
+  const list = modelsByProvider[current] ? "dl-p-" + current : "dl-all";
+  return el("tr", { "data-role": name },
+    el("td", { class: "role" }, roleCell),
+    el("td", { class: "prov" }, provs.length > 1
+      ? el("select", { "aria-label": "provedor", onchange: (ev) => { if (ev.target.value === doc.provider) delete e.provider; else e.provider = ev.target.value; changed(); render(); } },
+          ...provs.map((p) => el("option", { value: p, selected: p === current }, p)))
+      : el("span", { class: "muted" }, current || "—")),
+    el("td", {}, el("input", { type: "text", value: e.model || "", list, spellcheck: "false", "aria-label": "modelo",
+      placeholder: "ex.: deepseek/deepseek-v4.1-flash", oninput: (ev) => { e.model = ev.target.value; changed(); } })),
+    el("td", { class: "eff" }, select(e, "reasoning_effort", EFFORTS)),
+    el("td", { class: "x" }, removable ? el("button", { class: "btn quiet", title: "remover", onclick: () => { delete models[name]; changed(); render(); } }, "✕") : null));
+}
+
+function roleLabel(name) {
+  const r = ROLES[name];
+  return r ? [el("b", {}, r[0]), el("span", {}, r[1])] : [el("b", {}, name), el("span", {}, "nome usado no código")];
+}
+
+function renderModels() {
+  const head = el("thead", {}, el("tr", {}, el("th", {}, "Papel"), el("th", {}, "Provedor"), el("th", {}, "Modelo"), el("th", { title: "quanto o modelo pensa antes de responder (se ele suportar)" }, "Raciocínio"), el("th")));
+  const rows = Object.keys(doc.models).map((n) => modelRow(doc.models, n, { removable: !ROLES[n], roleCell: roleLabel(n) }));
+  $("#models").replaceChildren(head, el("tbody", {}, ...rows));
+}
+
+// ---- apps -------------------------------------------------------------------------------
+
+function renderApps() {
+  const names = [...new Set([...Object.keys(doc.apps), ...(state.apps_seen || [])])].sort();
+  const cards = names.map((app) => {
+    const models = (doc.apps[app] && doc.apps[app].models) || {};
+    const own = Object.keys(models);
+    const missing = Object.keys(doc.models).filter((r) => !own.includes(r));
+    const add = missing.length ? el("select", { class: "btn", style: "width:auto", onchange: (e) => {
+      if (!e.target.value) return;
+      doc.apps[app] = doc.apps[app] || { models: {} };
+      doc.apps[app].models[e.target.value] = { ...doc.models[e.target.value] };
+      changed(); render();
+    } }, el("option", { value: "" }, "+ Trocar um papel"), ...missing.map((r) => el("option", { value: r }, ROLES[r] ? ROLES[r][0] : r))) : null;
+    const body = own.length
+      ? el("table", {}, el("tbody", {}, ...own.map((n) => modelRow(models, n, { removable: true, roleCell: roleLabel(n) }))))
+      : el("div", { class: "muted" }, "Usa os modelos padrão.");
+    return el("div", { class: "card", "data-app": app }, el("div", { class: "app-head" }, el("b", {}, app), el("div", { style: "flex:1" }), add), body);
+  });
+  $("#apps").replaceChildren(...(cards.length ? cards : [el("p", { class: "muted" }, "Nenhum app usou a IA ainda.")]));
+}
+
+$("#show-kinds").onclick = () => { showKinds = true; render(); $("#add-card").scrollIntoView({ behavior: "smooth", block: "center" }); };
+$("#add-alias").onclick = () => {
+  const name = (prompt("Nome que o código vai pedir (ex.: rapido, gpt-4o):") || "").trim();
+  if (!name || doc.models[name]) return;
+  doc.models[name] = { model: "" };
+  changed(); render();
+};
+$("#add-app").onclick = () => {
+  const name = (prompt("Nome do app (o que ele manda no cabeçalho X-Modelrelay-App):") || "").trim();
+  if (!name) return;
+  doc.apps[name] = doc.apps[name] || { models: {} };
+  changed(); render();
+};
+$("#discard").onclick = () => { doc = JSON.parse(clean); render(); changed(); };
+$("#save").onclick = async () => {
+  const btn = $("#save");
+  btn.disabled = true;
+  const out = JSON.parse(JSON.stringify(doc));
+  for (const [n, e] of Object.entries(out.models)) if (!e.model) delete out.models[n];
+  for (const a of Object.values(out.apps)) for (const [n, e] of Object.entries(a.models || {})) if (!e.model) delete a.models[n];
+  for (const [a, s] of Object.entries(out.apps)) if (!Object.keys(s.models || {}).length) delete out.apps[a];
+  try {
+    const r = await api("api/console/save", { config: out });
+    toast("Salvo. Os apps já usam a nova configuração." + (r.backup ? " (anterior em " + r.backup.split(/[\\/]/).pop() + ")" : ""));
+    await load();
+  } catch (e) { toast(e.message, false); }
+  btn.disabled = false;
+};
+window.addEventListener("beforeunload", (e) => { if (doc && JSON.stringify(doc) !== clean) { e.preventDefault(); e.returnValue = ""; } });
+load().catch((e) => toast("Não consegui ler a configuração: " + e.message, false));
+</script>
+</body>
+</html>

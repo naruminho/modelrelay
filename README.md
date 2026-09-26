@@ -25,6 +25,9 @@ modelrelay init      # once per machine: creates ~/.modelrelay/config.toml (Open
 modelrelay show      # prints the config in use, secrets masked
 ```
 
+Or skip the file editing: `modelrelay serve` and open **http://127.0.0.1:8765/**, the setup screen
+(see [Setup screen](#setup-screen)). It creates the same file.
+
 `pip install` can't create files in your home folder, so `modelrelay init` does it. Other
 templates: `modelrelay init --template openai` or `--template gateway`. `init` never overwrites
 an existing file.
@@ -202,6 +205,32 @@ base_url = "https://proxy.example.com/v1"
 
 Both paths share the same token.
 
+### Several providers
+
+One file can use more than one provider, e.g. text from DeepSeek and images from Google. Each
+`[providers.<name>]` holds a connection (the same keys as the top of the file: `base_url`, `api_key`,
+`auth`, `transport`...), and a model entry picks one with `provider`:
+
+```toml
+provider = "openrouter"                  # used by entries that don't say
+
+[providers.openrouter]
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+
+[providers.google]
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+api_key = "AIza..."
+
+[models]
+"text"  = "deepseek/deepseek-v4.1-flash"                            # openrouter
+"image" = { provider = "google", model = "gemini-3.1-flash-image" }
+```
+
+- Providers share nothing: a key is only ever sent to its own provider's `base_url`.
+- `[apps.<app>.models]` entries can pick a provider too.
+- Files without `[providers]` work as before: the top of the file is the only connection.
+
 ### Roles and default params (e.g. reasoning effort)
 
 Apps ask for a **role**; the config picks the model. Two roles cover most apps:
@@ -337,6 +366,8 @@ Every option:
 | `max_payload_mb` | – | refuse requests bigger than this before sending |
 | `headers` | `{}` | extra headers on every request |
 | `transports.<name>` | `{}` | options for one transport: `base_url`, `tools_mode`, `extra_body`, `extra_headers`, polling settings |
+| `providers.<name>` | `{}` | extra connections, same keys as above (see [Several providers](#several-providers)) |
+| `provider` | – | the provider for model entries that don't name one (default: the top of the file) |
 
 Tokens are sent as `Authorization: Bearer <token>`. When a request gets 401/403, a
 `client_credentials` token is renewed once and the request retried.
@@ -426,6 +457,23 @@ In Python you can start it inside your own process: `make_server(port=0)` return
 
 Tip: give models **role names** in `[models]` (`"text"`, `"image"`) so apps ask for a role and each
 machine's config picks the actual model; add `[apps.<app>.models]` when one app needs something else.
+
+## Setup screen
+
+`modelrelay serve` also serves a setup screen at **http://127.0.0.1:8765/**: add providers (OpenRouter,
+OpenAI, Google Gemini, DeepSeek, Anthropic, any OpenAI-compatible URL, or a company gateway with
+client credentials), paste keys, test the connection (it lists the provider's models), pick the
+model for each role and per app. Saving writes the config file (the previous one stays as
+`config.toml.bak`) and the running server uses it right away.
+
+- With no config yet, `serve` starts anyway so the screen can create one.
+- Keys never go back to the browser: a saved key shows as `…a3f9`.
+- It only answers requests addressed to this machine (`Host: 127.0.0.1`/`localhost`), and changes
+  must be JSON from the same origin: other computers on the network and other websites open in your
+  browser can't reach it.
+- Behind a login proxy (only admins should see it), pass the public address:
+  `modelrelay serve --public-url https://example.com/ia/`. The page uses relative URLs, so any path prefix works.
+- Apps that called the server (`X-Modelrelay-App`) show up on the screen, ready to configure.
 
 ## Mock gateway
 
