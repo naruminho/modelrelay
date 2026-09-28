@@ -152,8 +152,13 @@ def make_handler(state: MockState):
                 return
             if self.path.startswith("/v1/jobs/"):
                 return self._poll(self.path.rsplit("/", 1)[1])
-            if self.path == "/v1/models":
-                return self._send(200, {"object": "list", "data": [{"id": "mock-fast"}, {"id": "mock-image"}]})
+            if self.path == "/v1/models":  # like OpenRouter's: name, what goes in and what comes out, price per token
+                return self._send(200, {"object": "list", "data": [
+                    {"id": "mock-fast", "name": "Mock: Fast", "pricing": {"prompt": "0.0000001", "completion": "0.0000004"},
+                     "architecture": {"input_modalities": ["text", "image"], "output_modalities": ["text"]}},
+                    {"id": "mock-image", "name": "Mock: Image", "pricing": {"prompt": "0.0000003", "completion": "0.0000025"},
+                     "architecture": {"input_modalities": ["text", "image"], "output_modalities": ["image", "text"]}},
+                ]})
             self._send(404, {"detail": "not found"})
 
         def _token(self):
@@ -168,6 +173,8 @@ def make_handler(state: MockState):
 
         def _chat(self):
             body = self._body()
+            if "invalid" in str(body.get("model", "")):  # like OpenRouter, for a typo in the model name
+                return self._send(400, {"error": {"message": f"{body['model']} is not a valid model ID", "code": 400}})
             if body.get("model") == "mock-slow":
                 time.sleep(state.request_limit + 0.05)
                 return self._send(504, {"error": {"message": "upstream request timeout"}})

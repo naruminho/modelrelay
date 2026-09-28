@@ -17,6 +17,7 @@ import copy
 import json
 import re
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -87,30 +88,80 @@ def save(path: Path, raw: dict) -> Path | None:
     return backup
 
 
-def check_provider(section: dict, old_raw: dict, name: str | None = None) -> dict:
-    """Tries one provider: lists its models (OpenAI-compatible) or gets a token (other auth).
-    Returns {"ok", "message", "models"}; never raises."""
+def _relay_for(section: dict, old_raw: dict, name: str | None):
+    """A Relay for one provider as it is on screen (a masked key means the one in the file)."""
     from .relay import Relay
 
+    section = apply({"providers": {name or "_": section}}, old_raw if name else {})["providers"][name or "_"]
+    return Relay(Config.from_dict(copy.deepcopy(section)))
+
+
+def check_provider(section: dict, old_raw: dict, name: str | None = None) -> dict:
+    """Tries one provider: lists its models (OpenAI-compatible) or gets a token (other auth).
+    Returns {"ok", "message", "models", "catalog"}; never raises. catalog: [{id, name, input, output,
+    price}] with what the provider says about each model (OpenRouter says a lot, others only the id)."""
     try:
-        section = apply({"providers": {name or "_": section}}, old_raw if name else {})["providers"][name or "_"]
-        relay = Relay(Config.from_dict(copy.deepcopy(section)))
+        relay = _relay_for(section, old_raw, name)
     except ConfigError as e:
-        return {"ok": False, "message": str(e), "models": []}
+        return {"ok": False, "message": str(e), "models": [], "catalog": []}
     try:
         token = relay.auth.provider.get_token()
         if relay.config.transport != "openai_compatible":
-            return {"ok": True, "message": "Credenciais aceitas (token obtido).", "models": []}
+            return {"ok": True, "message": "Credenciais aceitas (token obtido).", "models": [], "catalog": []}
         r = relay.http.get(relay.config.base_url.rstrip("/") + "/models", headers={"Authorization": f"Bearer {token}"})
         if r.status_code >= 400:
-            return {"ok": False, "message": f"O provedor respondeu HTTP {r.status_code}: {r.text[:300]}", "models": []}
-        data = r.json().get("data", [])
-        ids = sorted(m.get("id") for m in data if isinstance(m, dict) and m.get("id"))
-        return {"ok": True, "message": f"Conectado: {len(ids)} modelos disponíveis.", "models": ids}
+            return {"ok": False, "message": f"O provedor respondeu HTTP {r.status_code}: {r.text[:300]}", "models": [], "catalog": []}
+        catalog = sorted((_catalog_entry(m) for m in r.json().get("data", []) if isinstance(m, dict) and m.get("id")),
+                         key=lambda m: m["id"])
+        return {"ok": True, "message": f"Conectado: {len(catalog)} modelos disponíveis.",
+                "models": [m["id"] for m in catalog], "catalog": catalog}
     except Exception as e:  # network, TLS, bad JSON... all end up on the screen
-        return {"ok": False, "message": f"{type(e).__name__}: {e}", "models": []}
+        return {"ok": False, "message": f"{type(e).__name__}: {e}", "models": [], "catalog": []}
     finally:
         relay.close()
+
+
+def _catalog_entry(m: dict) -> dict:
+    arch = m.get("architecture") if isinstance(m.get("architecture"), dict) else {}
+    entry = {"id": m["id"], "name": m.get("name") or "", "input": list(arch.get("input_modalities") or []),
+             "output": list(arch.get("output_modalities") or [])}
+    try:  # OpenRouter: US$ per token, as text
+        p = m["pricing"]
+        entry["price"] = {"in": round(float(p["prompt"]) * 1e6, 4), "out": round(float(p["completion"]) * 1e6, 4)}
+    except (KeyError, TypeError, ValueError):
+        pass
+    return entry
+
+
+TRY_PROMPT = {"text": "Responda apenas: ok", "image": "Gere uma imagem pequena e simples: um quadrado roxo em fundo branco."}
+
+
+def try_model(section: dict, old_raw: dict, name: str | None, model: str, role: str = "text", **params) -> dict:
+    """The row's Testar button: calls the model for real, the way the apps will (so a typo, a model the
+    key can't use or one that doesn't do the role shows up before saving). For the image role it asks
+    for a small image (costs a little) and fails if none comes back. Returns {"ok", "message"}."""
+    model = (model or "").strip()
+    if not model:
+        return {"ok": False, "message": "Escolha um modelo."}
+    try:
+        relay = _relay_for(section, old_raw, name)
+    except ConfigError as e:
+        return {"ok": False, "message": str(e)}
+    params = {k: v for k, v in params.items() if v not in (None, "")}
+    start = time.monotonic()
+    try:
+        resp = relay.chat(TRY_PROMPT.get(role, TRY_PROMPT["text"]), model=model, **params)
+    except Exception as e:  # the provider's own words: "x is not a valid model ID", 401, timeout...
+        return {"ok": False, "message": f"{type(e).__name__}: {e}"[:500]}
+    finally:
+        relay.close()
+    took = f"{time.monotonic() - start:.1f}s"
+    if role == "image" and not resp.images:
+        return {"ok": False, "message": f"Respondeu em {took}, mas sem imagem: esse modelo não serve para o papel Imagem."}
+    said = " ".join((resp.text or "").split())[:80]
+    if role == "image":
+        return {"ok": True, "message": f"Gerou {len(resp.images)} imagem(ns) em {took}."}
+    return {"ok": True, "message": f"Respondeu em {took}: {said}" if said else f"Respondeu em {took}."}
 
 
 # ---- TOML ----------------------------------------------------------------------------------

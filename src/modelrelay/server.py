@@ -224,7 +224,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(page)))
-            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'self'")
+            self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'self'")
             self.end_headers()
             return self.wfile.write(page)
         if method == "GET" and path == "/api/console/config":
@@ -239,6 +239,10 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(400, f"Invalid JSON: {e}")
         if path == "/api/console/test":
             return self._json(200, console.check_provider(body.get("provider") or {}, self._raw(), body.get("name")))
+        if path == "/api/console/try":
+            effort = {"reasoning_effort": body.get("reasoning_effort")} if body.get("reasoning_effort") else {}
+            return self._json(200, console.try_model(body.get("provider") or {}, self._raw(), body.get("name"),
+                                                     str(body.get("model") or ""), str(body.get("role") or "text"), **effort))
         if path == "/api/console/save":
             if not server.config_path:
                 return self._json(400, {"error": {"message": "This server was started without a config file."}})
