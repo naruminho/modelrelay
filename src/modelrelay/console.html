@@ -25,6 +25,8 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
   button, input, select { font: inherit; color: inherit; }
+  /* sem isto o Windows desenha as opções em fundo branco com a letra clara do tema escuro */
+  option { background: var(--panel); color: var(--text); }
   .top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
   .logo { width: 30px; height: 30px; border-radius: 8px; background: var(--brand); display: grid; place-items: center; }
   .brand b { display: block; font-size: 15px; }
@@ -82,12 +84,30 @@
   table { width: 100%; border-collapse: collapse; }
   th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-3); padding: 0 8px 6px 0; }
   td { padding: 4px 8px 4px 0; vertical-align: middle; }
-  td.role { width: 26%; }
+  td.role { width: 22%; }
   td.role b { display: block; }
   td.role span { font-size: 12px; color: var(--text-3); }
-  td.prov { width: 20%; }
-  td.eff { width: 16%; }
+  td.prov { width: 14%; }
+  td.eff { width: 13%; }
   td.x { width: 36px; padding-right: 0; }
+  td.try { width: 1%; }
+  input.invalid { border-color: var(--err); }
+  .note { font-size: 12px; margin-top: 3px; color: var(--text-3); }
+  .note.ok { color: var(--ok); }
+  .note.err { color: var(--err); }
+  .note.warn { color: #b7791f; }
+
+  /* lista de modelos: o que o provedor tem de verdade, com busca */
+  .combo { position: relative; }
+  .combo-list { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 100%; width: max-content; max-width: min(620px, 92vw);
+    max-height: 340px; overflow: auto; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.22); padding: 4px; }
+  .combo-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 7px; cursor: pointer; }
+  .combo-item.active, .combo-item:hover { background: var(--brand-soft); }
+  .combo-item .id { font-weight: 550; white-space: nowrap; }
+  .combo-item .nm { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .combo-more { padding: 6px 10px; font-size: 12px; color: var(--text-3); }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--panel-2); color: var(--text-2); white-space: nowrap; }
+  .tag.ok { background: var(--ok-soft); color: var(--ok); }
   .app-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .app-head b { font-size: 15px; }
   .muted { color: var(--text-3); font-size: 13px; }
@@ -138,7 +158,7 @@
 
   <section>
     <h2>Modelos</h2>
-    <p class="lead">Os apps pedem um papel (<b>texto</b> ou <b>imagem</b>); aqui você escolhe que modelo faz cada um. Vale para todos os apps, a não ser que um app troque abaixo.</p>
+    <p class="lead">Os apps pedem um papel (<b>texto</b> ou <b>imagem</b>); aqui você escolhe que modelo faz cada um. Vale para todos os apps, a não ser que um app troque abaixo. A lista mostra os modelos que o provedor tem de verdade; <b>Testar</b> chama o modelo antes de salvar.</p>
     <div class="card"><table id="models"></table>
       <div class="row-actions"><button class="btn link" id="add-alias">+ Outro nome</button></div>
     </div>
@@ -153,11 +173,10 @@
 </main>
 
 <div class="savebar" id="savebar">
-  <span>Alterações não salvas</span>
+  <span id="savebar-msg">Alterações não salvas</span>
   <button class="btn" id="discard">Descartar</button>
   <button class="btn primary" id="save">Salvar</button>
 </div>
-<div id="lists"></div>
 
 <script>
 "use strict";
@@ -175,7 +194,16 @@ const ROLES = { text: ["Texto", "conversa, e lê as imagens que o app manda"], i
 const EFFORTS = [["", "padrão"], ["minimal", "mínimo"], ["low", "baixo"], ["medium", "médio"], ["high", "alto"]];
 
 let showKinds = false;
-let state = null, doc = null, clean = "", modelsByProvider = {}, tests = {};
+let state = null, doc = null, clean = "", modelsByProvider = {}, catalogs = {}, tests = {};
+// modelos que já responderam ao Testar (neste navegador): sobem para o topo da lista com a marca "testado"
+let tried = {};
+try { tried = JSON.parse(localStorage.getItem("modelrelay.tried") || "{}") || {}; } catch { tried = {}; }
+const triedKey = (prov, model, role) => prov + "|" + model + "|" + role;
+function remember(key, r) {
+  if (r.ok) tried[key] = true; else delete tried[key];
+  try { localStorage.setItem("modelrelay.tried", JSON.stringify(tried)); } catch {}
+}
+const rowTests = {};  // resultado do Testar por linha (some ao trocar o modelo)
 const $ = (s) => document.querySelector(s);
 const el = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -200,7 +228,18 @@ function kindOf(p) {
   return Object.keys(KINDS).find((k) => KINDS[k].host && url.includes(KINDS[k].host)) || "custom";
 }
 
-function changed() { $("#savebar").classList.toggle("show", JSON.stringify(doc) !== clean); }
+// modelo que o provedor não tem (quando a lista dele é conhecida): não deixa salvar
+function invalidModels() {
+  const out = [];
+  eachEntry((e) => { const c = catalogs[e.provider || doc.provider]; if (e.model && c && c.length && !c.some((m) => m.id === e.model)) out.push(e.model); });
+  return out;
+}
+function changed() {
+  const dirty = JSON.stringify(doc) !== clean, bad = invalidModels();
+  $("#savebar").classList.toggle("show", dirty);
+  $("#save").disabled = bad.length > 0;
+  $("#savebar-msg").textContent = bad.length ? `Modelo que o provedor não tem: ${bad.join(", ")}` : "Alterações não salvas";
+}
 function toast(msg, ok = true) {
   const t = el("div", { class: "toast " + (ok ? "ok" : "err") }, msg);
   document.body.append(t);
@@ -217,6 +256,20 @@ async function load() {
   $("#file").title = state.path;
   render();
   changed();
+  loadCatalogs();
+}
+
+// ao abrir a tela, cada provedor manda a lista de modelos dele (sem precisar clicar em Testar conexão)
+async function loadCatalogs() {
+  await Promise.all(Object.entries(doc.providers).map(async ([name, p]) => {
+    if (catalogs[name]) return;
+    try {
+      const r = await api("api/console/test", { name, provider: p });
+      if (!r.ok) { tests[name] = r; return; }
+      catalogs[name] = r.catalog || []; modelsByProvider[name] = r.models;
+    } catch {}
+  }));
+  render(); changed();
 }
 
 function render() {
@@ -224,9 +277,6 @@ function render() {
   renderProviders();
   renderModels();
   renderApps();
-  // sugestões de modelo: uma lista por provedor testado
-  $("#lists").replaceChildren(el("datalist", { id: "dl-all" }), ...Object.entries(modelsByProvider).map(([p, ms]) =>
-    el("datalist", { id: "dl-p-" + p }, ...ms.map((m) => el("option", { value: m })))));
 }
 
 // ---- provedores -------------------------------------------------------------------------
@@ -309,7 +359,7 @@ function providerCard(name, p) {
     try {
       const r = await api("api/console/test", { name, provider: p });
       tests[name] = r;
-      if (r.ok && r.models.length) modelsByProvider[name] = r.models;
+      if (r.ok && r.models.length) { modelsByProvider[name] = r.models; catalogs[name] = r.catalog || []; }
     } catch (e) { tests[name] = { ok: false, message: e.message }; }
     render();
   } }, "Testar conexão");
@@ -354,7 +404,7 @@ function renameProvider(old, name) {
   doc.providers = out;
   if (doc.provider === old) doc.provider = name;
   eachEntry((e) => { if (e.provider === old) e.provider = name; });
-  modelsByProvider[name] = modelsByProvider[old];
+  modelsByProvider[name] = modelsByProvider[old]; catalogs[name] = catalogs[old];
   changed(); render();
 }
 function removeProvider(name) {
@@ -370,20 +420,103 @@ function removeProvider(name) {
 
 // ---- modelos ----------------------------------------------------------------------------
 
-function modelRow(models, name, { removable, roleCell }) {
+// papel do que a linha testa: "image" gera imagem; os nomes livres seguem o que o modelo escolhido faz
+function roleOf(name, e, prov) {
+  if (name === "image" || name === "text") return name;
+  const m = (catalogs[prov] || []).find((x) => x.id === e.model);
+  return m && m.output.includes("image") ? "image" : "text";
+}
+const fits = (m, role) => !m.output.length || m.output.includes(role === "image" ? "image" : "text");
+const price = (m) => m.price ? `US$ ${m.price.in}/${m.price.out} por milhão` : "";
+
+// campo com lista: digita para filtrar, setas e Enter para escolher; mostra o que o modelo lê e gera
+function combo(e, name, prov, onpick) {
+  const role = name === "image" ? "image" : name === "text" ? "text" : null;
+  const input = el("input", { type: "text", value: e.model || "", spellcheck: "false", autocomplete: "off", "aria-label": "modelo",
+    role: "combobox", "aria-expanded": "false", placeholder: catalogs[prov] ? "digite para procurar na lista" : "ex.: deepseek/deepseek-v4.1-flash" });
+  const list = el("div", { class: "combo-list hidden", role: "listbox" });
+  const box = el("div", { class: "combo" }, input, list);
+  let items = [], active = -1;
+  const show = () => {
+    const cat = catalogs[prov] || [];
+    if (!cat.length) { list.classList.add("hidden"); return; }
+    const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const exact = cat.some((m) => m.id === input.value);  // já escolhido: abre mostrando todos
+    const ok = (m) => (!role || fits(m, role)) && (exact || words.every((w) => (m.id + " " + m.name).toLowerCase().includes(w)));
+    const done = (m) => tried[triedKey(prov, m.id, role || "text")] ? 0 : 1;
+    items = cat.filter(ok).sort((a, b) => done(a) - done(b));
+    const shown = items.slice(0, 120);
+    active = Math.min(active, shown.length - 1);
+    list.replaceChildren(...[...shown.map((m, i) => el("div", { class: "combo-item" + (i === active ? " active" : ""), role: "option", "data-id": m.id,
+        onmousedown: (ev) => { ev.preventDefault(); pick(m.id); } },
+      el("span", { class: "id" }, m.id), el("span", { class: "nm", title: price(m) }, m.name + (price(m) ? " · " + price(m) : "")),
+      tried[triedKey(prov, m.id, role || "text")] ? el("span", { class: "tag ok" }, "testado") : null,
+      m.input.includes("image") ? el("span", { class: "tag" }, "lê imagem") : null,
+      m.output.includes("image") ? el("span", { class: "tag" }, "gera imagem") : null)),
+      items.length > shown.length ? el("div", { class: "combo-more" }, `e mais ${items.length - shown.length}: digite para filtrar`) : null,
+      items.length ? null : el("div", { class: "combo-more" }, role === "image" ? "Nenhum modelo que gera imagem com esse nome." : "Nenhum modelo com esse nome.")].filter(Boolean));
+    list.classList.remove("hidden"); input.setAttribute("aria-expanded", "true");
+  };
+  const hide = () => { list.classList.add("hidden"); input.setAttribute("aria-expanded", "false"); active = -1; };
+  const pick = (id) => { input.value = id; hide(); e.model = id; onpick(); };
+  input.addEventListener("focus", show);
+  input.addEventListener("blur", () => setTimeout(hide, 120));
+  input.addEventListener("input", () => { e.model = input.value.trim(); active = -1; show(); onpick(true); });
+  input.addEventListener("keydown", (ev) => {
+    const n = Math.min(items.length, 120);
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault(); if (list.classList.contains("hidden")) show();
+      active = n ? (active + (ev.key === "ArrowDown" ? 1 : n - 1)) % n : -1; show();
+      list.querySelector(".combo-item.active")?.scrollIntoView({ block: "nearest" });
+    } else if (ev.key === "Enter" && active >= 0 && items[active]) { ev.preventDefault(); pick(items[active].id); }
+    else if (ev.key === "Escape") hide();
+  });
+  return { box, input };
+}
+
+function modelRow(models, name, { removable, roleCell, app }) {
   const e = models[name];
   const provs = Object.keys(doc.providers);
   const current = e.provider || doc.provider;
-  const list = modelsByProvider[current] ? "dl-p-" + current : "dl-all";
+  const key = (app || "") + "/" + name;
+  const note = el("div", { class: "note" });
+  const test = el("button", { class: "btn", title: "" });
+  const { box, input } = combo(e, name, current, (typing) => { delete rowTests[key]; update(); changed(); if (!typing) render(); });
+  function update() {
+    const cat = catalogs[current], m = cat && cat.find((x) => x.id === e.model), role = roleOf(name, e, current), t = rowTests[key];
+    const bad = e.model && cat && cat.length && !m;
+    input.classList.toggle("invalid", !!bad);
+    test.disabled = !e.model || !!bad;
+    test.textContent = "Testar";
+    test.title = role === "image" ? "Pede uma imagem pequena ao modelo, de verdade (custa uns centavos)" : "Manda uma mensagem curta ao modelo, de verdade";
+    let text = "", cls = "note";
+    if (t) { text = t.message; cls += t.ok ? " ok" : t.pending ? "" : " err"; }
+    else if (bad) { text = `O provedor ${current} não tem esse modelo. Escolha um da lista.`; cls += " err"; }
+    else if (m && role === "image" && m.output.length && !m.output.includes("image")) { text = "Esse modelo não gera imagem."; cls += " err"; }
+    else if (m && name === "text" && m.input.length && !m.input.includes("image")) { text = "Esse modelo não lê imagem: apps que mandam imagem vão receber erro."; cls += " warn"; }
+    else if (m && tried[triedKey(current, e.model, role)]) { text = "Já testado neste computador."; cls += " ok"; }
+    note.className = cls; note.textContent = text; note.classList.toggle("hidden", !text);
+  }
+  test.onclick = async () => {
+    const role = roleOf(name, e, current);
+    rowTests[key] = { pending: true, message: role === "image" ? "Pedindo uma imagem ao modelo…" : "Chamando o modelo…" };
+    update(); test.disabled = true;
+    try {
+      const r = await api("api/console/try", { name: current, provider: doc.providers[current], model: e.model, role, reasoning_effort: e.reasoning_effort || "" });
+      rowTests[key] = r; remember(triedKey(current, e.model, role), r);
+    } catch (err) { rowTests[key] = { ok: false, message: err.message }; }
+    update();
+  };
+  update();
   return el("tr", { "data-role": name },
     el("td", { class: "role" }, roleCell),
     el("td", { class: "prov" }, provs.length > 1
-      ? el("select", { "aria-label": "provedor", onchange: (ev) => { if (ev.target.value === doc.provider) delete e.provider; else e.provider = ev.target.value; changed(); render(); } },
+      ? el("select", { "aria-label": "provedor", onchange: (ev) => { if (ev.target.value === doc.provider) delete e.provider; else e.provider = ev.target.value; delete rowTests[key]; changed(); render(); } },
           ...provs.map((p) => el("option", { value: p, selected: p === current }, p)))
       : el("span", { class: "muted" }, current || "—")),
-    el("td", {}, el("input", { type: "text", value: e.model || "", list, spellcheck: "false", "aria-label": "modelo",
-      placeholder: "ex.: deepseek/deepseek-v4.1-flash", oninput: (ev) => { e.model = ev.target.value; changed(); } })),
-    el("td", { class: "eff" }, select(e, "reasoning_effort", EFFORTS)),
+    el("td", {}, box, note),
+    el("td", { class: "eff" }, select(e, "reasoning_effort", EFFORTS, () => { delete rowTests[key]; update(); })),
+    el("td", { class: "try" }, test),
     el("td", { class: "x" }, removable ? el("button", { class: "btn quiet", title: "remover", onclick: () => { delete models[name]; changed(); render(); } }, "✕") : null));
 }
 
@@ -393,7 +526,7 @@ function roleLabel(name) {
 }
 
 function renderModels() {
-  const head = el("thead", {}, el("tr", {}, el("th", {}, "Papel"), el("th", {}, "Provedor"), el("th", {}, "Modelo"), el("th", { title: "quanto o modelo pensa antes de responder (se ele suportar)" }, "Raciocínio"), el("th")));
+  const head = el("thead", {}, el("tr", {}, el("th", {}, "Papel"), el("th", {}, "Provedor"), el("th", {}, "Modelo"), el("th", { title: "quanto o modelo pensa antes de responder (se ele suportar)" }, "Raciocínio"), el("th"), el("th")));
   const rows = Object.keys(doc.models).map((n) => modelRow(doc.models, n, { removable: !ROLES[n], roleCell: roleLabel(n) }));
   $("#models").replaceChildren(head, el("tbody", {}, ...rows));
 }
@@ -413,7 +546,7 @@ function renderApps() {
       changed(); render();
     } }, el("option", { value: "" }, "+ Trocar um papel"), ...missing.map((r) => el("option", { value: r }, ROLES[r] ? ROLES[r][0] : r))) : null;
     const body = own.length
-      ? el("table", {}, el("tbody", {}, ...own.map((n) => modelRow(models, n, { removable: true, roleCell: roleLabel(n) }))))
+      ? el("table", {}, el("tbody", {}, ...own.map((n) => modelRow(models, n, { removable: true, roleCell: roleLabel(n), app }))))
       : el("div", { class: "muted" }, "Usa os modelos padrão.");
     return el("div", { class: "card", "data-app": app }, el("div", { class: "app-head" }, el("b", {}, app), el("div", { style: "flex:1" }), add), body);
   });

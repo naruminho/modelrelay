@@ -118,6 +118,58 @@ def test_test_button_lists_the_provider_models(console_server):
     assert not bad["ok"] and "403" in bad["message"]
 
 
+def test_test_button_brings_the_catalog_so_the_screen_can_offer_a_list(console_server):
+    """The model field is a list of what the provider really has, with what each one reads and makes."""
+    _, base, _, _ = console_server
+    doc = httpx.get(base + "/api/console/config").json()["config"]
+    name = doc["provider"]
+    r = httpx.post(base + "/api/console/test", json={"name": name, "provider": doc["providers"][name]}, timeout=10).json()
+    by_id = {m["id"]: m for m in r["catalog"]}
+    assert by_id["mock-image"]["output"] == ["image", "text"] and by_id["mock-fast"]["input"] == ["text", "image"]
+    assert by_id["mock-fast"]["name"] == "Mock: Fast"
+    assert by_id["mock-fast"]["price"] == {"in": 0.1, "out": 0.4}   # US$ per million tokens
+
+
+def _try(base, doc, model, role, **extra):
+    name = doc["provider"]
+    return httpx.post(base + "/api/console/try", json={"name": name, "provider": doc["providers"][name],
+                                                       "model": model, "role": role, **extra}, timeout=20).json()
+
+
+def test_try_button_calls_the_model_for_real(console_server):
+    _, base, _, _ = console_server
+    doc = httpx.get(base + "/api/console/config").json()["config"]
+    ok = _try(base, doc, "mock-fast", "text")
+    assert ok["ok"], ok
+    assert "echo" in ok["message"]                       # what it answered shows on the screen
+    bad = _try(base, doc, "mock-invalid-typo", "text")
+    assert not bad["ok"] and "not a valid model" in bad["message"]
+
+
+def test_try_button_for_the_image_role_needs_an_image_back(console_server):
+    _, base, _, _ = console_server
+    doc = httpx.get(base + "/api/console/config").json()["config"]
+    assert _try(base, doc, "mock-image", "image")["ok"]
+    no = _try(base, doc, "mock-fast", "image")           # answers, but only text
+    assert not no["ok"] and "imagem" in no["message"]
+
+
+def test_try_button_uses_the_provider_chosen_in_the_row_with_its_saved_key(console_server):
+    """The key on screen is masked: the test must use the one in the file."""
+    _, base, _, _ = console_server
+    doc = httpx.get(base + "/api/console/config").json()["config"]
+    name = doc["provider"]
+    assert isinstance(doc["providers"][name]["api_key"], dict)   # masked
+    assert _try(base, doc, "mock-fast", "text", reasoning_effort="low")["ok"]
+
+
+def test_dropdown_options_are_readable_in_dark_mode(console_server):
+    """Windows draws <option> on white unless the page says otherwise: light text on white is unreadable."""
+    _, base, _, _ = console_server
+    page = httpx.get(base + "/").text
+    assert "option {" in page and "background: var(--panel)" in page.split("option {", 1)[1].split("}", 1)[0]
+
+
 def test_apps_that_called_show_up_for_setup(console_server):
     server, base, _, _ = console_server
     httpx.post(server.url + "/chat/completions", headers={APP_HEADER: "wotan"},

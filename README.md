@@ -474,6 +474,12 @@ model for each role and per app. Saving writes the config file (the previous one
 - Behind a login proxy (only admins should see it), pass the public address:
   `modelrelay serve --public-url https://example.com/ia/`. The page uses relative URLs, so any path prefix works.
 - Apps that called the server (`X-Modelrelay-App`) show up on the screen, ready to configure.
+- The model field is a searchable list of what the provider really has (loaded when the screen opens),
+  showing what each model reads and makes (OpenRouter: "lê imagem", "gera imagem", price). The image
+  role only lists models that generate images. A model the provider doesn't have can't be saved.
+- **Testar** on each row calls the model for real, with the row's provider and reasoning effort: a short
+  message for text, a small image for the image role (it fails if no image comes back; costs a few cents).
+  Models that passed are marked "testado" and come first in the list (remembered by the browser).
 
 ## Mock gateway
 
