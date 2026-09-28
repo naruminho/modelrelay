@@ -1,4 +1,5 @@
-# Publica no PyPI ao criar uma release no GitHub (tag vX.Y.Z, igual à version do pyproject.toml).
+# Publica no PyPI ao criar uma release no GitHub (tag vX.Y.Z, igual à version do pyproject.toml), ou à mão:
+# Actions > publish > Run workflow com "publicar" marcado (a versão publicada é a do pyproject.toml da main).
 # Pré-requisito (uma vez): em pypi.org > Your account > Publishing, adicionar um "pending publisher" para o projeto
 # modelrelay: dono naruminho, repositório modelrelay, workflow publish.yml, ambiente "pypi".
 name: publish
@@ -6,6 +7,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      publicar:
+        description: "Publicar no PyPI (sem marcar, só testa o build)"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -21,7 +27,7 @@ jobs:
 
   publish:
     needs: build
-    if: github.event_name == 'release'  # disparo manual só testa o build
+    if: github.event_name == 'release' || inputs.publicar  # disparo manual sem "publicar" só testa o build
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
