@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "modelrelay"
-version = "0.1.0"
+version = "0.2.0"
 description = "One small API to call LLMs anywhere: OpenAI-compatible APIs or job-queue gateways, with pluggable auth."
 readme = "README.md"
 requires-python = ">=3.10"

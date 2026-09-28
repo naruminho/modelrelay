@@ -20,7 +20,7 @@ print(resp.text)
 ## Install
 
 ```bash
-pip install git+https://github.com/naruminho/modelrelay
+pip install modelrelay   # or the latest from git: pip install git+https://github.com/naruminho/modelrelay
 modelrelay init      # once per machine: creates ~/.modelrelay/config.toml (OpenRouter template)
 modelrelay show      # prints the config in use, secrets masked
 ```
