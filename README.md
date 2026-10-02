@@ -63,14 +63,16 @@ resp.images[0].save("cat.png")
 for ev in llm.stream(history, model="gpt-4o"):
     if ev.type == "delta":       # text as it's generated (when the transport can stream)
         print(ev.text, end="")
-    elif ev.type in ("queued", "running"):   # job-based transports
+    elif ev.type in ("queued", "running", "alive"):   # job status; a reasoning model still thinking
         print(f"\rthinking... {ev.elapsed:.0f}s", end="")
     elif ev.type == "done":
         final = ev.response
 ```
 
 The same code works everywhere. With a job gateway you get status updates instead of
-text deltas; `llm.supports_text_stream` tells you which one to expect.
+text deltas; `llm.supports_text_stream` tells you which one to expect. A reasoning model can think for
+minutes before the first piece of text: meanwhile you get an `alive` event every couple of seconds, and
+`modelrelay serve` sends an SSE comment (`: alive`), so a client's idle timeout does not give up.
 
 ### Tool calling
 

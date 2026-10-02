@@ -73,6 +73,8 @@ class Event:
       queued  - the job was accepted (job-based transports only)
       running - still working; `elapsed` tells for how long
       delta   - a piece of text (only when the transport streams text)
+      alive   - the provider is still working but sent no text yet (a reasoning model thinking,
+                a keep-alive); at most one every couple of seconds
       done    - finished; `response` holds the full Response
     """
 

@@ -33,7 +33,7 @@ def test_cut_stream_raises_with_partial_text(mock):
     with pytest.raises(StreamInterrupted) as err:
         for ev in make_relay(url).stream("x", model="mock-cut"):
             events.append(ev)
-    assert [e.type for e in events] == ["delta"]
+    assert [e.type for e in events if e.type != "alive"] == ["delta"]
     assert err.value.partial.text == "this answer gets cut "
     assert err.value.trace_id
 

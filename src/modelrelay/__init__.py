@@ -23,7 +23,7 @@ from .relay import Relay
 from .transports import JobState, JobsTransport, OpenAICompatible, Transport
 from .types import ChatRequest, Event, Image, Response, ToolCall, Usage
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 
 class _DefaultRelay:

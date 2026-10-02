@@ -74,6 +74,17 @@ def test_stream_reports_the_resolved_model(served):
     assert chunks[-1]["model"] == "mock-fast"
 
 
+def test_stream_sends_a_comment_while_the_model_thinks(served):
+    # the headers and an SSE comment go out before the first text, so the client's idle timeout does not fire
+    body = {"model": "mock-think", "stream": True, "messages": [{"role": "user", "content": "oi"}]}
+    with httpx.stream("POST", f"{served.url}/chat/completions", json=body, timeout=10) as r:
+        lines = [line for line in r.iter_lines() if line]
+    first_data = next(i for i, line in enumerate(lines) if line.startswith("data: "))
+    assert any(line.startswith(":") for line in lines[:first_data])
+    chunks = [json.loads(x[6:]) for x in lines if x.startswith("data: ") and x != "data: [DONE]"]
+    assert "".join(c["choices"][0]["delta"].get("content", "") for c in chunks).strip() == "echo: oi"
+
+
 def test_models_and_health(served):
     assert httpx.get(f"{served.url}/models").json()["data"] == [
         {"id": "fast", "object": "model", "owned_by": "modelrelay"}]
