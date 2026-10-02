@@ -163,7 +163,12 @@ class _Handler(BaseHTTPRequestHandler):
                 if not started:
                     self._start_sse()
                     started = True
-                if ev.type == "delta" and ev.text:
+                if ev.type == "alive":
+                    # an SSE comment: the client sees the connection is alive while the model thinks (with nothing
+                    # arriving, apps gave up after their idle timeout: "nada chegou em 180 s")
+                    self.wfile.write(b": alive\n\n")
+                    self.wfile.flush()
+                elif ev.type == "delta" and ev.text:
                     sent_text = True
                     self._sse(_chunk(cid, created, model, {"content": ev.text}))
                 elif ev.type == "done":

@@ -45,6 +45,17 @@ def test_stream_deltas(mock):
     assert events[-1].response.text.strip() == "echo: um dois tres"
 
 
+def test_stream_says_alive_while_the_model_thinks(mock):
+    # a reasoning model sends only keep-alives and reasoning for minutes; without "alive" events the app saw
+    # nothing and gave up on its idle timeout
+    _, url = mock
+    events = list(make_relay(url).stream("oi", model="mock-think"))
+    kinds = [e.type for e in events]
+    assert "alive" in kinds and kinds.index("alive") < kinds.index("delta")
+    assert kinds.count("alive") <= 2  # not one per reasoning token
+    assert events[-1].response.text.strip() == "echo: oi"
+
+
 def test_native_tools(mock):
     _, url = mock
     relay = make_relay(url)

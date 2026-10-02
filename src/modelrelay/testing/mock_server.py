@@ -12,6 +12,7 @@ Fake models: anything echoes the last user message. Special models:
   mock-image    returns an image
   mock-slow     exceeds the time limit (504)
   mock-cut      stream is cut in the middle (no finish, no [DONE])
+  mock-think    streams keep-alives and reasoning for a while before the text
   mock-badtool  calls a tool with arguments that are not JSON
   mock-fail     job ends FAILED
   mock-flaky    first poll of the job answers HTTP 500
@@ -196,6 +197,11 @@ def make_handler(state: MockState):
                 self.wfile.flush()
 
             self.wfile.write(b": keep-alive\n\n")
+            if body.get("model") == "mock-think":  # a reasoning model: nothing but thinking for a while
+                for _ in range(3):
+                    time.sleep(0.05)
+                    self.wfile.write(b": OPENROUTER PROCESSING\n\n")
+                    emit({"content": "", "reasoning": "hmm "})
             if body.get("model") == "mock-cut":
                 emit({"content": "this answer gets cut "})
                 self.close_connection = True
