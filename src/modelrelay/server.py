@@ -175,7 +175,8 @@ class _Handler(BaseHTTPRequestHandler):
                         delta["images"] = [_image_part(img) for img in resp.images]
                     if delta:
                         self._sse(_chunk(cid, created, model, delta))
-                    final = _chunk(cid, created, model, {}, resp.finish_reason or "stop")
+                    # o último pedaço diz qual modelo respondeu (o apelido resolvido), como a resposta sem stream
+                    final = _chunk(cid, created, resp.model or model, {}, resp.finish_reason or "stop")
                     if resp.usage:
                         final["usage"] = _usage(resp)
                     self._sse(final)
