@@ -65,6 +65,15 @@ def test_stream_sse(served):
     assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
 
 
+def test_stream_reports_the_resolved_model(served):
+    # o fim do stream diz qual modelo respondeu, como a resposta sem stream (com o apelido, o app não via que o
+    # servidor ainda usava o modelo antigo do config)
+    body = {"model": "fast", "stream": True, "messages": [{"role": "user", "content": "oi"}]}
+    with httpx.stream("POST", f"{served.url}/chat/completions", json=body, timeout=10) as r:
+        chunks = [json.loads(line[6:]) for line in r.iter_lines() if line.startswith("data: ") and line != "data: [DONE]"]
+    assert chunks[-1]["model"] == "mock-fast"
+
+
 def test_models_and_health(served):
     assert httpx.get(f"{served.url}/models").json()["data"] == [
         {"id": "fast", "object": "model", "owned_by": "modelrelay"}]
